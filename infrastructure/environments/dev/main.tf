@@ -56,7 +56,7 @@ module "aks" {
   dns_prefix          = "aks-${var.environment}"
   vnet_subnet_id      = module.network.aks_subnet_id
   environment         = var.environment
-  kubernetes_version  = "1.27.9"
+  kubernetes_version  = "1.33.3"
   acr_id              = module.acr.acr_id
   
   # Node configuration
