@@ -31,7 +31,7 @@ module "acr" {
 
 module "aks" {
   source = "../../modules/aks"
-  cluster_name       = "aks-${var.environment}-${random_id.suffix.hex}"
+
   resource_group_name = module.resource_group.name
   location            = var.location
   environment         = var.environment
@@ -40,6 +40,4 @@ module "aks" {
   acr_id              = module.acr.id
   kubernetes_version  = var.kubernetes_version
   default_node_count  = var.default_node_count
-  enable_auto_scaling = true
-  tags = local.tags
 }
