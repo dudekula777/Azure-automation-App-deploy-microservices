@@ -21,13 +21,17 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features = {}
 
-  client_id       = var.client_id       # passed via -var
-  client_secret   = var.client_secret   # passed via -var
-  subscription_id = var.subscription_id # passed via -var
-  tenant_id       = var.tenant_id       # passed via -var
+  # Remove this line if present:
+  # use_azure_cli = true
+
+  client_id       = var.client_id
+  client_secret   = var.client_secret
+  subscription_id = var.subscription_id
+  tenant_id       = var.tenant_id
 }
+
 
 # -----------------------------
 # NETWORK MODULE
