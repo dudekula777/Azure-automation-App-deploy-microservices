@@ -1,25 +1,3 @@
-terraform {
-  required_version = ">= 1.5.0"
-
-  # backend "azurerm" {
-  #   resource_group_name  = "lgb-resourcegroup"
-  #   storage_account_name = "lgbstorage"
-  #   container_name       = "tfstatecontainer1989"
-  #   key                  = "terraform.tfstate"
-  # }
-
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    azuread = {
-      source  = "hashicorp/azuread"
-      version = "~> 3.0"
-    }
-  }
-}
-
 
 
 # -----------------------------

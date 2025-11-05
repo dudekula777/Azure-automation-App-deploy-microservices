@@ -1,4 +1,4 @@
-name: Terraform AKS DEV Deployment
+name: Terraform AKS Deployment
 
 on:
   push:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   terraform:
-    name: 'Terraform Apply'
+    name: Terraform Apply
     runs-on: ubuntu-latest
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -31,20 +31,10 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
         working-directory: ./infra
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
       - name: Terraform Validate
         run: terraform validate
         working-directory: ./infra
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
       - name: Terraform Format
         run: terraform fmt -check
@@ -55,26 +45,24 @@ jobs:
           -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-          -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+          -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+          -var "aks_resource_group=${{ secrets.AKS_RESOURCE_GRP }}" \
+          -var "storage_account_name=${{ secrets.STORAGE_ACCOUNT }}" \
+          -var "aks_acr_name=${{ secrets.ACR_NAME }}" \
+          -var "cluster_name=${{ secrets.AKS_CLUSTER }}"
         working-directory: ./infra
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve \
           -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-          -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+          -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+          -var "aks_resource_group=${{ secrets.AKS_RESOURCE_GRP }}" \
+          -var "storage_account_name=${{ secrets.STORAGE_ACCOUNT }}" \
+          -var "aks_acr_name=${{ secrets.ACR_NAME }}" \
+          -var "cluster_name=${{ secrets.AKS_CLUSTER }}"
         working-directory: ./infra
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
   build-and-deploy:
     needs: terraform
