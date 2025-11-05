@@ -51,6 +51,7 @@ jobs:
         terraform -chdir=${{ env.TF_WORKING_DIR }} plan \
           -var="environment=${{ env.ENVIRONMENT }}" \
           -input=false \
+          -refresh=false \
           -out=tfplan
 
     - name: Terraform Apply
