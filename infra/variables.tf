@@ -1,22 +1,23 @@
+# Variables for sensitive data
 variable "client_id" {
   type        = string
-  description = "Azure Service Principal Client ID"
+  description = "Azure service principal client ID"
 }
 
 variable "client_secret" {
   type        = string
-  description = "Azure Service Principal Client Secret"
+  description = "Azure service principal client secret"
   sensitive   = true
 }
 
 variable "tenant_id" {
   type        = string
-  description = "Azure Tenant ID"
+  description = "Azure tenant ID"
 }
 
 variable "subscription_id" {
   type        = string
-  description = "Azure Subscription ID"
+  description = "Azure subscription ID"
 }
 
 
