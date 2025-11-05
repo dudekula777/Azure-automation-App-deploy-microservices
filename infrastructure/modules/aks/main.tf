@@ -1,16 +1,22 @@
 resource "azurerm_kubernetes_cluster" "main" {
-  name                = "aks-${var.environment}-${random_id.suffix.hex}"
+  name                = var.cluster_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  dns_prefix          = "aks-${var.environment}"
+  dns_prefix          = var.dns_prefix
   kubernetes_version  = var.kubernetes_version
 
   default_node_pool {
-    name           = "default"
-    node_count     = var.default_node_count
-    vm_size        = "Standard_B2s"
-    vnet_subnet_id = var.subnet_id
-    zones          = ["1", "2", "3"]
+    name                = "default"
+    node_count          = var.node_count
+    vm_size             = var.vm_size
+    
+    # Handle null/empty availability_zones
+    availability_zones  = var.availability_zones != null && length(var.availability_zones) > 0 ? var.availability_zones : null
+    
+    enable_auto_scaling = var.enable_auto_scaling
+    min_count           = var.min_count
+    max_count           = var.max_count
+    vnet_subnet_id      = var.vnet_subnet_id
   }
 
   identity {
@@ -19,14 +25,11 @@ resource "azurerm_kubernetes_cluster" "main" {
 
   network_profile {
     network_plugin = "azure"
-    network_policy = "azure"
+    service_cidr   = var.service_cidr
+    dns_service_ip = var.dns_service_ip
   }
 
-  role_based_access_control_enabled = true
-
-  tags = {
-    Environment = var.environment
-  }
+  tags = var.tags
 }
 
 resource "azurerm_role_assignment" "aks_acr" {

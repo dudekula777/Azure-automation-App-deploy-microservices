@@ -39,18 +39,10 @@ variable "default_node_count" {
 }
 
 variable "availability_zones" {
-  description = "Availability zones for the node pool. Check region support before enabling. Set to null if not needed."
+  description = "Availability zones for the node pool. Check region support before enabling."
   type        = list(string)
   default     = null
-  
-  validation {
-    condition = var.availability_zones == null || (
-      can(length(var.availability_zones)) && 
-      length(var.availability_zones) > 0 && 
-      length(var.availability_zones) <= 3
-    )
-    error_message = "Availability zones must be null or a list of 1-3 zones."
-  }
+  # No validation block for now
 }
 
 variable "vm_size" {
