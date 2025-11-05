@@ -1,15 +1,12 @@
-name: Terraform
+name: 1 - Terraform Infrastructure
 
 on:
+  workflow_dispatch:  # Manual trigger
   push:
     branches: [ main ]
     paths: 
       - 'infrastructure/**'
       - '.github/workflows/terraform.yml'
-  pull_request:
-    branches: [ main ]
-    paths: 
-      - 'infrastructure/**'
 
 env:
   ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
@@ -21,7 +18,7 @@ env:
 
 jobs:
   terraform:
-    name: 'Terraform'
+    name: 'Terraform - Provision Infrastructure'
     runs-on: ubuntu-latest
     environment: dev
 
@@ -55,32 +52,44 @@ jobs:
           -var="environment=${{ env.ENVIRONMENT }}" \
           -input=false \
           -out=tfplan
-      continue-on-error: true
-
-    - name: Terraform Plan Status
-      if: steps.plan.outcome == 'failure'
-      run: exit 1
-
-    - name: Upload Terraform Plan
-      uses: actions/upload-artifact@v4
-      with:
-        name: terraform-plan
-        path: ${{ env.TF_WORKING_DIR }}/tfplan
-        retention-days: 1
 
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      id: apply
       run: |
         terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve tfplan
 
-    - name: Get AKS credentials
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    - name: Get AKS Outputs
+      id: outputs
       run: |
-        # This would be populated after Terraform apply
-        echo "AKS credentials would be configured here"
+        cd ${{ env.TF_WORKING_DIR }}
         
-    - name: Update GitHub Secrets Context
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        # Extract AKS cluster name
+        AKS_CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
+        AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
+        ACR_NAME=$(terraform output -raw acr_name 2>/dev/null || echo "")
+        
+        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
+        echo "AKS_RESOURCE_GROUP=$AKS_RESOURCE_GROUP" >> $GITHUB_ENV
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+        
+        echo "AKS Cluster: $AKS_CLUSTER_NAME"
+        echo "Resource Group: $AKS_RESOURCE_GROUP"
+        echo "ACR Name: $ACR_NAME"
+
+    - name: Update GitHub Environment
       run: |
-        echo "Infrastructure deployment completed successfully"
-        # In a real scenario, you might update outputs to be used in other workflows
+        echo "Infrastructure deployment completed successfully!"
+        echo "Next step: Run Docker Build pipeline"
+
+    - name: Create Deployment Tag
+      run: |
+        echo "Infrastructure deployed at $(date)" > infrastructure-deployment.txt
+        echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}" >> infrastructure-deployment.txt
+        echo "ACR: ${{ env.ACR_NAME }}" >> infrastructure-deployment.txt
+
+    - name: Upload Infrastructure Details
+      uses: actions/upload-artifact@v4
+      with:
+        name: infrastructure-details
+        path: infrastructure-deployment.txt
+        retention-days: 30

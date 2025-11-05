@@ -1,30 +1,22 @@
-name: Full CI/CD Pipeline
+name: Full CI/CD Pipeline (Sequential)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-
-env:
-  ENVIRONMENT: 'dev'
+  workflow_dispatch:  # Manual trigger for full pipeline
 
 jobs:
   terraform:
-    name: Terraform Plan
+    name: "1 - Infrastructure (Terraform)"
     uses: ./.github/workflows/terraform.yml
     secrets: inherit
 
   docker:
-    name: Build Docker Images
+    name: "2 - Build Images (Docker)"
+    needs: terraform
     uses: ./.github/workflows/docker.yml
     secrets: inherit
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
 
   deploy:
-    name: Deploy to AKS
-    needs: [terraform, docker]
+    name: "3 - Deploy to AKS"
+    needs: docker
     uses: ./.github/workflows/deploy.yml
     secrets: inherit
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'

@@ -1,41 +1,43 @@
-name: Deploy to AKS
+name: 3 - Deploy to AKS
 
 on:
-  workflow_run:
-    workflows: ["Build and Push Docker Images"]
-    types:
-      - completed
-  push:
-    branches: [ main ]
-    paths:
-      - 'kubernetes/**'
-      - '.github/workflows/deploy.yml'
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-        - dev
-        - staging
+  workflow_dispatch:  # Manual trigger after Docker
+  # Uncomment below if you want it to auto-trigger after docker
+  # workflow_run:
+  #   workflows: ["2 - Docker Build and Push"]
+  #   types:
+  #     - completed
 
 env:
   CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
   RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
   ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
   NAMESPACE: 'healthcare-dev'
+  ENVIRONMENT: 'dev'
 
 jobs:
   deploy:
-    name: Deploy to AKS
+    name: Deploy to AKS Cluster
     runs-on: ubuntu-latest
     environment: dev
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Download Build Summary
+      uses: actions/download-artifact@v4
+      with:
+        name: docker-build-summary
+        path: ./
+
+    - name: Display Deployment Info
+      run: |
+        echo "=== Deployment Information ==="
+        cat docker-build-summary.txt || echo "No build summary found"
+        echo "Cluster: ${{ env.CLUSTER_NAME }}"
+        echo "Resource Group: ${{ env.RESOURCE_GROUP }}"
+        echo "Namespace: ${{ env.NAMESPACE }}"
 
     - name: Configure Azure credentials
       uses: azure/login@v2
@@ -52,113 +54,184 @@ jobs:
 
     - name: Verify cluster connection
       run: |
+        echo "Testing cluster connection..."
         kubectl cluster-info
         kubectl get nodes
+        echo "✅ Cluster connection successful"
 
     - name: Setup Helm
       uses: azure/setup-helm@v3
       with:
         version: '3.13.0'
 
-    - name: Create namespace if not exists
+    - name: Create namespace
       run: |
         kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+        echo "✅ Namespace created/verified: ${{ env.NAMESPACE }}"
 
     - name: Deploy NGINX Ingress Controller
       run: |
+        echo "Deploying NGINX Ingress Controller..."
         helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
         helm repo update
-        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-          --namespace ingress-nginx \
-          --create-namespace \
-          --set controller.service.type=LoadBalancer \
-          --set controller.service.externalTrafficPolicy=Local \
-          --wait
+        
+        # Check if ingress-nginx already exists
+        if helm list -n ingress-nginx | grep -q ingress-nginx; then
+          echo "Ingress controller already exists, upgrading..."
+          helm upgrade ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --set controller.service.type=LoadBalancer \
+            --set controller.service.externalTrafficPolicy=Local \
+            --wait
+        else
+          echo "Installing new ingress controller..."
+          helm install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --create-namespace \
+            --set controller.service.type=LoadBalancer \
+            --set controller.service.externalTrafficPolicy=Local \
+            --wait
+        fi
 
     - name: Wait for ingress controller
       run: |
+        echo "Waiting for ingress controller to be ready..."
         kubectl wait --namespace ingress-nginx \
           --for=condition=ready pod \
           --selector=app.kubernetes.io/component=controller \
-          --timeout=180s
+          --timeout=300s
+        echo "✅ Ingress controller is ready"
 
-    - name: Deploy healthcare microservices with Helm
+    - name: Deploy Healthcare Microservices
       run: |
+        echo "Deploying healthcare microservices with Helm..."
         helm upgrade --install healthcare-microservices \
           ./kubernetes/helm \
           --namespace ${{ env.NAMESPACE }} \
           --create-namespace \
           --set global.imageRegistry=${{ env.ACR_REGISTRY }}/ \
-          --set global.environment=dev \
+          --set global.environment=${{ env.ENVIRONMENT }} \
+          --set global.namespace=${{ env.NAMESPACE }} \
           --set patientService.image.tag=latest \
           --set appointmentService.image.tag=latest \
-          --wait --timeout 300s
+          --wait --timeout 600s
+        echo "✅ Helm deployment completed"
 
     - name: Verify deployment
       run: |
-        echo "Checking deployment status..."
-        kubectl get all -n ${{ env.NAMESPACE }}
+        echo "=== Verifying Deployment ==="
         
-        echo "Checking ingress..."
-        kubectl get ingress -n ${{ env.NAMESPACE }}
+        echo "1. Checking deployments..."
+        kubectl get deployments -n ${{ env.NAMESPACE }}
         
-        echo "Checking pods status..."
+        echo "2. Checking pods..."
         kubectl get pods -n ${{ env.NAMESPACE }} -o wide
         
-        echo "Checking services..."
+        echo "3. Checking services..."
         kubectl get services -n ${{ env.NAMESPACE }}
+        
+        echo "4. Checking ingress..."
+        kubectl get ingress -n ${{ env.NAMESPACE }}
+        
+        echo "✅ All Kubernetes resources verified"
+
+    - name: Wait for pods to be ready
+      run: |
+        echo "Waiting for all pods to be ready..."
+        kubectl wait --for=condition=ready pod -l app=patient-service -n ${{ env.NAMESPACE }} --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=appointment-service -n ${{ env.NAMESPACE }} --timeout=300s
+        echo "✅ All pods are ready"
 
     - name: Run health checks
+      id: healthchecks
       run: |
-        echo "Waiting for services to be ready..."
-        sleep 30
+        echo "Running health checks..."
         
         # Get ingress external IP
+        echo "Getting ingress external IP..."
         EXTERNAL_IP=$(kubectl get service ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        echo "External IP: $EXTERNAL_IP"
+        
+        if [ -z "$EXTERNAL_IP" ]; then
+          echo "⚠️  No external IP found yet, waiting..."
+          sleep 30
+          EXTERNAL_IP=$(kubectl get service ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        fi
         
         if [ -n "$EXTERNAL_IP" ]; then
-          echo "Running health checks..."
+          echo "External IP: $EXTERNAL_IP"
+          echo "EXTERNAL_IP=$EXTERNAL_IP" >> $GITHUB_ENV
+          
+          # Wait a bit more for services to be fully ready
+          sleep 20
           
           # Patient service health check
-          PATIENT_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP/patients/health || echo "failed")
-          echo "Patient Service Health Check: $PATIENT_HEALTH"
+          echo "Testing Patient Service..."
+          PATIENT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP/patients/health || echo "curl_failed")
+          echo "Patient Service HTTP Status: $PATIENT_STATUS"
           
           # Appointment service health check
-          APPOINTMENT_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP/appointments/health || echo "failed")
-          echo "Appointment Service Health Check: $APPOINTMENT_HEALTH"
+          echo "Testing Appointment Service..."
+          APPOINTMENT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP/appointments/health || echo "curl_failed")
+          echo "Appointment Service HTTP Status: $APPOINTMENT_STATUS"
           
-          if [ "$PATIENT_HEALTH" = "200" ] && [ "$APPOINTMENT_HEALTH" = "200" ]; then
+          if [ "$PATIENT_STATUS" = "200" ] && [ "$APPOINTMENT_STATUS" = "200" ]; then
             echo "✅ All health checks passed!"
+            echo "HEALTH_CHECKS_PASSED=true" >> $GITHUB_ENV
           else
-            echo "❌ Some health checks failed"
+            echo "❌ Health checks failed"
+            echo "HEALTH_CHECKS_PASSED=false" >> $GITHUB_ENV
             exit 1
           fi
         else
-          echo "⚠️  No external IP found for ingress controller"
+          echo "❌ Could not retrieve external IP for ingress"
+          echo "HEALTH_CHECKS_PASSED=false" >> $GITHUB_ENV
+          exit 1
         fi
 
-    - name: Log deployment information
+    - name: Create deployment summary
       if: always()
       run: |
-        echo "=== Deployment Summary ==="
-        echo "Cluster: ${{ env.CLUSTER_NAME }}"
-        echo "Namespace: ${{ env.NAMESPACE }}"
-        echo "Image Registry: ${{ env.ACR_REGISTRY }}"
-        echo "Deployment Time: $(date)"
+        echo "=== Deployment Summary ===" > deployment-summary.txt
+        echo "Deployment Time: $(date)" >> deployment-summary.txt
+        echo "Cluster: ${{ env.CLUSTER_NAME }}" >> deployment-summary.txt
+        echo "Namespace: ${{ env.NAMESPACE }}" >> deployment-summary.txt
+        echo "External IP: ${{ env.EXTERNAL_IP }}" >> deployment-summary.txt
+        echo "Health Checks: ${{ env.HEALTH_CHECKS_PASSED || 'unknown' }}" >> deployment-summary.txt
+        echo "" >> deployment-summary.txt
+        echo "Application URLs:" >> deployment-summary.txt
+        echo "- Patient Service: http://${{ env.EXTERNAL_IP }}/patients" >> deployment-summary.txt
+        echo "- Appointment Service: http://${{ env.EXTERNAL_IP }}/appointments" >> deployment-summary.txt
+        echo "- Patient Health: http://${{ env.EXTERNAL_IP }}/patients/health" >> deployment-summary.txt
+        echo "- Appointment Health: http://${{ env.EXTERNAL_IP }}/appointments/health" >> deployment-summary.txt
         
-        # Get deployment status
-        kubectl get deployments -n ${{ env.NAMESPACE }} -o wide
-        
-        # Get pod status
-        echo "Pod Status:"
-        kubectl get pods -n ${{ env.NAMESPACE }} --sort-by='.status.containerStatuses[0].restartCount'
+        cat deployment-summary.txt
+
+    - name: Upload deployment summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-summary
+        path: deployment-summary.txt
+        retention-days: 30
+
+    - name: Deployment Success
+      if: success()
+      run: |
+        echo "🎉 Deployment completed successfully!"
+        echo "📱 Your application is now live!"
+        echo ""
+        echo "Access your services at:"
+        echo "Patient Service: http://${{ env.EXTERNAL_IP }}/patients"
+        echo "Appointment Service: http://${{ env.EXTERNAL_IP }}/appointments"
+        echo ""
+        echo "Health checks:"
+        echo "Patient Health: http://${{ env.EXTERNAL_IP }}/patients/health"
+        echo "Appointment Health: http://${{ env.EXTERNAL_IP }}/appointments/health"
 
   rollback:
     name: Rollback on Failure
     runs-on: ubuntu-latest
     environment: dev
-    if: failure() && github.ref == 'refs/heads/main'
+    if: failure()
     
     steps:
     - name: Checkout code
@@ -177,11 +250,16 @@ jobs:
 
     - name: Rollback deployment
       run: |
-        echo "Rolling back deployment due to failure..."
-        helm rollback healthcare-microservices 0 --namespace ${{ env.NAMESPACE }} --wait
+        echo "🚨 Deployment failed! Initiating rollback..."
+        
+        # Check if helm release exists
+        if helm list -n ${{ env.NAMESPACE }} | grep -q healthcare-microservices; then
+          echo "Rolling back to previous version..."
+          helm rollback healthcare-microservices 0 --namespace ${{ env.NAMESPACE }} --wait
+          echo "✅ Rollback completed"
+        else
+          echo "No existing deployment found, nothing to rollback"
+        fi
         
         echo "Current deployment status:"
-        helm history healthcare-microservices --namespace ${{ env.NAMESPACE }}
-        
-        echo "Pod status after rollback:"
-        kubectl get pods -n ${{ env.NAMESPACE }}
+        helm history healthcare-microservices --namespace ${{ env.NAMESPACE }} || echo "No helm history found"
