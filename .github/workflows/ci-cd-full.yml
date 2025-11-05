@@ -1,0 +1,30 @@
+name: Full CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  ENVIRONMENT: 'dev'
+
+jobs:
+  terraform:
+    name: Terraform Plan
+    uses: ./.github/workflows/terraform.yml
+    secrets: inherit
+
+  docker:
+    name: Build Docker Images
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+  deploy:
+    name: Deploy to AKS
+    needs: [terraform, docker]
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'

@@ -1,0 +1,86 @@
+name: Terraform
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'infrastructure/**'
+      - '.github/workflows/terraform.yml'
+  pull_request:
+    branches: [ main ]
+    paths: 
+      - 'infrastructure/**'
+
+env:
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ENVIRONMENT: 'dev'
+  TF_WORKING_DIR: 'infrastructure/environments/dev'
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: '1.6.0'
+
+    - name: Terraform Format
+      id: fmt
+      run: |
+        terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check -recursive
+      continue-on-error: true
+
+    - name: Terraform Init
+      id: init
+      run: terraform -chdir=${{ env.TF_WORKING_DIR }} init
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+    - name: Terraform Plan
+      id: plan
+      run: |
+        terraform -chdir=${{ env.TF_WORKING_DIR }} plan \
+          -var="environment=${{ env.ENVIRONMENT }}" \
+          -input=false \
+          -out=tfplan
+      continue-on-error: true
+
+    - name: Terraform Plan Status
+      if: steps.plan.outcome == 'failure'
+      run: exit 1
+
+    - name: Upload Terraform Plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan
+        path: ${{ env.TF_WORKING_DIR }}/tfplan
+        retention-days: 1
+
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve tfplan
+
+    - name: Get AKS credentials
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        # This would be populated after Terraform apply
+        echo "AKS credentials would be configured here"
+        
+    - name: Update GitHub Secrets Context
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        echo "Infrastructure deployment completed successfully"
+        # In a real scenario, you might update outputs to be used in other workflows

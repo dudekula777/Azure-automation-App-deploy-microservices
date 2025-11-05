@@ -1,0 +1,187 @@
+name: Deploy to AKS
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types:
+      - completed
+  push:
+    branches: [ main ]
+    paths:
+      - 'kubernetes/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+
+env:
+  CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+  RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
+  ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+  NAMESPACE: 'healthcare-dev'
+
+jobs:
+  deploy:
+    name: Deploy to AKS
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure Azure credentials
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ env.RESOURCE_GROUP }}
+        cluster-name: ${{ env.CLUSTER_NAME }}
+        admin: 'false'
+        use-kubelogin: 'true'
+
+    - name: Verify cluster connection
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.13.0'
+
+    - name: Create namespace if not exists
+      run: |
+        kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy NGINX Ingress Controller
+      run: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo update
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --set controller.service.type=LoadBalancer \
+          --set controller.service.externalTrafficPolicy=Local \
+          --wait
+
+    - name: Wait for ingress controller
+      run: |
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=180s
+
+    - name: Deploy healthcare microservices with Helm
+      run: |
+        helm upgrade --install healthcare-microservices \
+          ./kubernetes/helm \
+          --namespace ${{ env.NAMESPACE }} \
+          --create-namespace \
+          --set global.imageRegistry=${{ env.ACR_REGISTRY }}/ \
+          --set global.environment=dev \
+          --set patientService.image.tag=latest \
+          --set appointmentService.image.tag=latest \
+          --wait --timeout 300s
+
+    - name: Verify deployment
+      run: |
+        echo "Checking deployment status..."
+        kubectl get all -n ${{ env.NAMESPACE }}
+        
+        echo "Checking ingress..."
+        kubectl get ingress -n ${{ env.NAMESPACE }}
+        
+        echo "Checking pods status..."
+        kubectl get pods -n ${{ env.NAMESPACE }} -o wide
+        
+        echo "Checking services..."
+        kubectl get services -n ${{ env.NAMESPACE }}
+
+    - name: Run health checks
+      run: |
+        echo "Waiting for services to be ready..."
+        sleep 30
+        
+        # Get ingress external IP
+        EXTERNAL_IP=$(kubectl get service ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        echo "External IP: $EXTERNAL_IP"
+        
+        if [ -n "$EXTERNAL_IP" ]; then
+          echo "Running health checks..."
+          
+          # Patient service health check
+          PATIENT_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP/patients/health || echo "failed")
+          echo "Patient Service Health Check: $PATIENT_HEALTH"
+          
+          # Appointment service health check
+          APPOINTMENT_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP/appointments/health || echo "failed")
+          echo "Appointment Service Health Check: $APPOINTMENT_HEALTH"
+          
+          if [ "$PATIENT_HEALTH" = "200" ] && [ "$APPOINTMENT_HEALTH" = "200" ]; then
+            echo "✅ All health checks passed!"
+          else
+            echo "❌ Some health checks failed"
+            exit 1
+          fi
+        else
+          echo "⚠️  No external IP found for ingress controller"
+        fi
+
+    - name: Log deployment information
+      if: always()
+      run: |
+        echo "=== Deployment Summary ==="
+        echo "Cluster: ${{ env.CLUSTER_NAME }}"
+        echo "Namespace: ${{ env.NAMESPACE }}"
+        echo "Image Registry: ${{ env.ACR_REGISTRY }}"
+        echo "Deployment Time: $(date)"
+        
+        # Get deployment status
+        kubectl get deployments -n ${{ env.NAMESPACE }} -o wide
+        
+        # Get pod status
+        echo "Pod Status:"
+        kubectl get pods -n ${{ env.NAMESPACE }} --sort-by='.status.containerStatuses[0].restartCount'
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    environment: dev
+    if: failure() && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure Azure credentials
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ env.RESOURCE_GROUP }}
+        cluster-name: ${{ env.CLUSTER_NAME }}
+
+    - name: Rollback deployment
+      run: |
+        echo "Rolling back deployment due to failure..."
+        helm rollback healthcare-microservices 0 --namespace ${{ env.NAMESPACE }} --wait
+        
+        echo "Current deployment status:"
+        helm history healthcare-microservices --namespace ${{ env.NAMESPACE }}
+        
+        echo "Pod status after rollback:"
+        kubectl get pods -n ${{ env.NAMESPACE }}
