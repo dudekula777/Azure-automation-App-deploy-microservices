@@ -148,4 +148,4 @@ jobs:
       with:
         name: kubeconfig
         path: kubeconfig
-        retention-days: 1  # Short retention for security
+        retention-days: 1  # Short retention for security.
