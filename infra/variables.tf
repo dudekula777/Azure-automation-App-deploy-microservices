@@ -20,6 +20,7 @@ variable "subscription_id" {
 }
 
 
+
 # -----------------------------
 # Infrastructure Settings
 # -----------------------------
