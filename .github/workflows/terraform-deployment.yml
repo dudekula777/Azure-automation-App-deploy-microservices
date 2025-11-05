@@ -23,6 +23,7 @@ jobs:
         with:
           terraform_version: 1.8.4
 
+      # Terraform Init, Plan, Apply using Service Principal (no Azure CLI login)
       - name: Terraform Init
         run: terraform init -reconfigure
         working-directory: ./infra
