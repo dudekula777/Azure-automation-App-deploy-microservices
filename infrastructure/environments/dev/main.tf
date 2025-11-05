@@ -1,3 +1,8 @@
+# Add this at the top of your main.tf file, before the module blocks
+resource "random_id" "suffix" {
+  byte_length = 4
+}
+
 locals {
   tags = {
     Environment = var.environment
@@ -37,22 +42,6 @@ module "acr" {
   environment         = var.environment
 }
 
-# module "aks" {
-#   source = "../../modules/aks"
-
-#   resource_group_name = module.resource_group.name
-#   location            = var.location
-#   environment         = var.environment
-#   vnet_id             = module.network.vnet_id
-#   subnet_id           = module.network.aks_subnet_id
-#   acr_id              = module.acr.acr_id
-#   kubernetes_version  = "1.27.9"  # Use specific supported version
-#   default_node_count  = 1
-
-#   # Optional variables with defaults
-#   availability_zones = null
-#   vm_size           = "Standard_DS2_v2"
-# }
 module "aks" {
   source = "../../modules/aks"
 
