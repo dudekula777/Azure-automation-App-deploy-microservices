@@ -10,13 +10,11 @@ concurrency:
   group: terraform-deploy
   cancel-in-progress: true
 
-
 env:
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
- 
 
 jobs:
   terraform:
@@ -24,41 +22,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3 
+        uses: actions/checkout@v3
       
-      
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-          enable-AzPSSession: true
-
-
-        
-      #- name: Configure Git credentials
-      #  env:
-      #    GH_PAT: ${{ secrets.GH_PAT }}
-      #  run: |
-      #    echo "echo \$GH_PAT" > git-askpass.sh
-      #    chmod +x git-askpass.sh
-      #    export GIT_ASKPASS=$(pwd)/git-askpass.sh
-      #   git ls-remote https://github.com/dneelakandan/network-module.git
-
-
-
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.8.4
-      
+
       - name: Terraform Init
-        run: terraform init 
-        
+        run: terraform init -reconfigure
+        working-directory: ./infra
 
       - name: Terraform Validate
-        run: terraform validate 
-        
+        run: terraform validate
+        working-directory: ./infra
+
+      - name: Terraform Format
+        run: terraform fmt -check
+        working-directory: ./infra
 
       - name: Terraform Plan 
         run: terraform plan -var="client_id=${{ secrets.AZURE_CLIENT_ID }}"
@@ -67,6 +48,7 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve -var="client_id=${{ secrets.AZURE_CLIENT_ID }}"
         working-directory: ./infra
+
   build-and-deploy:
     needs: terraform
     runs-on: ubuntu-latest
@@ -84,13 +66,10 @@ jobs:
       - name: Login to ACR
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
-      - name: Build and push Docker image for appointment-service
+      - name: Build and push Docker images
         run: |
           docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/appointment-service:latest ./services/appointment-service
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/appointment-service:latest
-
-      - name: Build and push Docker image for patient-service
-        run: |
           docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/patient-service:latest ./services/patient-service
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/patient-service:latest
 
@@ -99,30 +78,18 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Azure Login (for AKS)
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Set AKS context
         run: az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GRP }} --name ${{ secrets.AKS_CLUSTER }}
 
-      - name: Attach ACR into AKS
+      - name: Attach ACR to AKS
         run: az aks update --name ${{ secrets.AKS_CLUSTER }} --resource-group ${{ secrets.AKS_RESOURCE_GRP }} --attach-acr ${{ secrets.ACR_NAME }}
       
-      - name: Assign Network Contributor access to AKS
+      - name: Assign Network Contributor role
         shell: bash
         run: |
-          echo "Fetching node resource group..."
           NODE_RG=$(az aks show -g "${{ secrets.AKS_RESOURCE_GRP }}" -n "${{ secrets.AKS_CLUSTER }}" --query nodeResourceGroup -o tsv)
-
-          echo "Fetching kubelet identity object ID..."
           KUBELET_ID=$(az aks show -g "${{ secrets.AKS_RESOURCE_GRP }}" -n "${{ secrets.AKS_CLUSTER }}" --query identityProfile.kubeletidentity.objectId -o tsv)
-
-          echo "Fetching node resource group ID..."
           SCOPE_ID=$(az group show -n "$NODE_RG" --query id -o tsv)
-
-          echo "Assigning Network Contributor role..."
           az role assignment create --assignee "$KUBELET_ID" --role "Network Contributor" --scope "$SCOPE_ID"
 
       - name: Install NGINX Ingress Controller
