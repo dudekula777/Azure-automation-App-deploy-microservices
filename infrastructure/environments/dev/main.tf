@@ -1,3 +1,11 @@
+locals {
+  tags = {
+    Environment = var.environment
+    Project     = "YourProjectName"
+    Terraform   = "true"
+  }
+}
+
 module "resource_group" {
   source = "../../modules/resource-group"
 
@@ -50,19 +58,25 @@ module "aks" {
 
   resource_group_name = module.resource_group.name
   location            = var.location
+  cluster_name        = "aks-${var.environment}-${random_id.suffix.hex}"
+  dns_prefix          = "aks-${var.environment}"
+  vnet_subnet_id      = module.network.aks_subnet_id
   environment         = var.environment
-  vnet_id             = module.network.vnet_id
-  subnet_id           = module.network.aks_subnet_id
-  acr_id              = module.acr.acr_id
   kubernetes_version  = "1.27.9"
-  default_node_count  = 1
-
-  # Auto-scaling configuration
+  
+  # Node configuration
+  node_count          = 1
+  vm_size             = "Standard_DS2_v2"
+  availability_zones  = null
+  
+  # Network configuration
+  service_cidr        = "10.0.0.0/16"
+  dns_service_ip      = "10.0.0.10"
+  
+  # Auto-scaling
   enable_auto_scaling = true
   min_count          = 1
   max_count          = 3
-
-  # Optional variables with defaults
-  availability_zones = null
-  vm_size           = "Standard_DS2_v2"
+  
+  tags = local.tags
 }
