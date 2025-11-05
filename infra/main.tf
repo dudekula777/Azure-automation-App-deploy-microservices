@@ -21,16 +21,16 @@ terraform {
 }
 
 provider "azurerm" {
-  features = {}
-
-  # Remove this line if present:
-  # use_azure_cli = true
+  features {}
 
   client_id       = var.client_id
   client_secret   = var.client_secret
-  subscription_id = var.subscription_id
   tenant_id       = var.tenant_id
+  subscription_id = var.subscription_id
+
+  # IMPORTANT: Remove any `use_azure_cli = true`
 }
+
 
 
 # -----------------------------
