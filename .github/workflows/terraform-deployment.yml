@@ -1,0 +1,145 @@
+name: Terraform AKS Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: true
+
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+ # ARM_GH_PAT: ${{ secrets.GH_PAT }}
+
+jobs:
+  terraform:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3 
+      
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          enable-AzPSSession: true
+
+
+        
+      #- name: Configure Git credentials
+      #  env:
+      #    GH_PAT: ${{ secrets.GH_PAT }}
+      #  run: |
+      #    echo "echo \$GH_PAT" > git-askpass.sh
+      #    chmod +x git-askpass.sh
+      #    export GIT_ASKPASS=$(pwd)/git-askpass.sh
+      #   git ls-remote https://github.com/dneelakandan/network-module.git
+
+
+
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.8.4
+      
+      - name: Terraform Init
+        run: terraform init 
+        
+
+      - name: Terraform Validate
+        run: terraform validate 
+        
+
+      - name: Terraform Plan 
+        run: terraform plan -var="client_id=${{ secrets.AZURE_CLIENT_ID }}"
+        
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -var="client_id=${{ secrets.AZURE_CLIENT_ID }}"
+
+  build-and-deploy:
+    needs: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and push Docker image for appointment-service
+        run: |
+          docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/appointment-service:latest ./services/appointment-service
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/appointment-service:latest
+
+      - name: Build and push Docker image for patient-service
+        run: |
+          docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/patient-service:latest ./services/patient-service
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/patient-service:latest
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Azure Login (for AKS)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS context
+        run: az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GRP }} --name ${{ secrets.AKS_CLUSTER }}
+
+      - name: Attach ACR into AKS
+        run: az aks update --name ${{ secrets.AKS_CLUSTER }} --resource-group ${{ secrets.AKS_RESOURCE_GRP }} --attach-acr ${{ secrets.ACR_NAME }}
+      
+      - name: Assign Network Contributor access to AKS
+        shell: bash
+        run: |
+          echo "Fetching node resource group..."
+          NODE_RG=$(az aks show -g "${{ secrets.AKS_RESOURCE_GRP }}" -n "${{ secrets.AKS_CLUSTER }}" --query nodeResourceGroup -o tsv)
+
+          echo "Fetching kubelet identity object ID..."
+          KUBELET_ID=$(az aks show -g "${{ secrets.AKS_RESOURCE_GRP }}" -n "${{ secrets.AKS_CLUSTER }}" --query identityProfile.kubeletidentity.objectId -o tsv)
+
+          echo "Fetching node resource group ID..."
+          SCOPE_ID=$(az group show -n "$NODE_RG" --query id -o tsv)
+
+          echo "Assigning Network Contributor role..."
+          az role assignment create --assignee "$KUBELET_ID" --role "Network Contributor" --scope "$SCOPE_ID"
+
+      - name: Install NGINX Ingress Controller
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx --create-namespace \
+            --set controller.service.loadBalancerIP=${{ secrets.AKS_PUB_IP }} \
+            --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-resource-group"=${{ secrets.AKS_RESOURCE_GRP }} \
+            --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-pip-name"=${{ secrets.AKS_PUB_IP_NAME }}
+
+      - name: Deploy App + Ingress
+        run: |
+          cd k8s
+          kubectl apply -f appointment-deployment.yml
+          kubectl apply -f appointment-service.yml
+          kubectl apply -f patient-deployment.yml
+          kubectl apply -f patient-service.yml
+          kubectl apply -f ingress.yml
