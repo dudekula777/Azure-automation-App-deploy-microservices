@@ -9,8 +9,8 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "your-resource-group-name"  # Replace with actual values
-    storage_account_name = "yourstorageaccountname"    # Replace with actual values
+    resource_group_name  = "lgb-resourcegroup"  # Replace with actual values
+    storage_account_name = "tfstatestorage160689"    # Replace with actual values
     container_name       = "tfstate"
     key                  = "dev.terraform.tfstate"
   }
