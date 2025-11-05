@@ -1,5 +1,6 @@
-output "id" {
-  description = "ACR ID"
+
+output "acr_id" {
+  description = "Azure Container Registry ID"
   value       = azurerm_container_registry.main.id
 }
 

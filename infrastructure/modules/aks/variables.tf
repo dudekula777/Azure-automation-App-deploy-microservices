@@ -50,3 +50,21 @@ variable "vm_size" {
   type        = string
   default     = "Standard_DS2_v2"  # Use a zone-supporting size if needed
 }
+
+variable "enable_auto_scaling" {
+  description = "Enable auto-scaling for the node pool"
+  type        = bool
+  default     = false
+}
+
+variable "min_count" {
+  description = "Minimum node count for auto-scaling"
+  type        = number
+  default     = 1
+}
+
+variable "max_count" {
+  description = "Maximum node count for auto-scaling"
+  type        = number
+  default     = 3
+}
