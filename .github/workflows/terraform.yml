@@ -1,3 +1,6 @@
+# Edit the file and add this comment at the top
+echo "# Updated: $(date) - Fixed duplicate terraform plan command" >> .github/workflows/terraform.yml
+
 name: 1 - Terraform Infrastructure
 
 on:
