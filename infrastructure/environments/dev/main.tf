@@ -1,4 +1,3 @@
-# Add this at the top of your main.tf file, before the module blocks
 resource "random_id" "suffix" {
   byte_length = 4
 }
@@ -56,7 +55,6 @@ module "aks" {
   # Node configuration
   node_count          = 1
   vm_size             = "Standard_DS2_v2"
-  availability_zones  = null
   
   # Network configuration
   service_cidr        = "10.0.0.0/16"
