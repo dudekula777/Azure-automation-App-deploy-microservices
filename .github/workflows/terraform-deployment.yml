@@ -94,7 +94,7 @@ jobs:
       - name: Login to ACR
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
-      - name: Build and push Docker images
+      - name: Build and push Docker images (DEV)
         run: |
           docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/appointment-service:dev ./services/appointment-service
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/appointment-service:dev
