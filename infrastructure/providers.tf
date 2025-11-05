@@ -30,7 +30,7 @@ terraform {
 
 provider "azurerm" {
   features {}  # ← Keep only one features block
-  
+  use_cli = false
   # These are optional since you're using environment variables
   subscription_id = var.subscription_id
   client_id       = var.client_id
