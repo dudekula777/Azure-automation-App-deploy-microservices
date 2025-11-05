@@ -1,13 +1,8 @@
 provider "azurerm" {
   features = {}
-  tenant_id       = var.tenant_id
-  subscription_id = var.subscription_id
-  client_id       = var.client_id
-  client_secret   = var.client_secret
-}
 
-provider "azuread" {
-  client_id       = var.client_id
-  client_secret   = var.client_secret
-  tenant_id       = var.tenant_id
+  tenant_id       = var.tenant_id       # from variables.tf
+  subscription_id = var.subscription_id # from variables.tf
+  client_id       = var.client_id       # from variables.tf
+  client_secret   = var.client_secret   # from variables.tf
 }
