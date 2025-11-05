@@ -1,12 +1,12 @@
 terraform {
   required_version = ">= 1.5.0"
 
-  backend "azurerm" {
-    resource_group_name  = "lgb-resourcegroup"
-    storage_account_name = "lgbstorage"
-    container_name       = "tfstatecontainer1989"
-    key                  = "terraform.tfstate"
-  }
+  # backend "azurerm" {
+  #   resource_group_name  = "lgb-resourcegroup"
+  #   storage_account_name = "lgbstorage"
+  #   container_name       = "tfstatecontainer1989"
+  #   key                  = "terraform.tfstate"
+  # }
 
   required_providers {
     azurerm = {
@@ -18,17 +18,6 @@ terraform {
       version = "~> 3.0"
     }
   }
-}
-
-provider "azurerm" {
-  features {}
-
-  client_id       = var.client_id
-  client_secret   = var.client_secret
-  tenant_id       = var.tenant_id
-  subscription_id = var.subscription_id
-
-  # IMPORTANT: Remove any `use_azure_cli = true`
 }
 
 

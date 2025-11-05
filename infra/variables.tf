@@ -1,23 +1,24 @@
 variable "client_id" {
-  description = "Azure Service Principal Client ID"
   type        = string
+  description = "Azure Service Principal Client ID"
 }
 
 variable "client_secret" {
-  description = "Azure Service Principal Client Secret"
   type        = string
+  description = "Azure Service Principal Client Secret"
   sensitive   = true
 }
 
 variable "tenant_id" {
-  description = "Azure Tenant ID"
   type        = string
+  description = "Azure Tenant ID"
 }
 
 variable "subscription_id" {
-  description = "Azure Subscription ID"
   type        = string
+  description = "Azure Subscription ID"
 }
+
 
 # -----------------------------
 # Infrastructure Settings

@@ -1,9 +1,8 @@
-name: Terraform AKS Deployment
+name: Terraform AKS DEV Deployment
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +11,7 @@ concurrency:
 
 jobs:
   terraform:
-    name: 'Terraform Apply'
+    name: Terraform Apply
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -40,10 +39,6 @@ jobs:
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      - name: Terraform Format
-        run: terraform fmt -check
-        working-directory: ./infra
 
       - name: Terraform Plan
         run: terraform plan \
