@@ -51,6 +51,7 @@ module "aks" {
   vnet_subnet_id      = module.network.aks_subnet_id
   environment         = var.environment
   kubernetes_version  = "1.27.9"
+  acr_id              = module.acr.acr_id  # This passes the ACR ID to the AKS module
   
   # Node configuration
   node_count          = 1

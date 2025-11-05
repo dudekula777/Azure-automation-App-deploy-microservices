@@ -4,8 +4,8 @@ output "acr_id" {
   value       = azurerm_container_registry.main.id
 }
 
-output "name" {
-  description = "ACR name"
+output "acr_name" {
+  description = "Azure Container Registry name"
   value       = azurerm_container_registry.main.name
 }
 
