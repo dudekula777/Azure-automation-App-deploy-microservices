@@ -37,3 +37,22 @@ variable "default_node_count" {
   description = "Default node count"
   type        = number
 }
+
+variable "availability_zones" {
+  description = "Availability zones for the node pool. Check region support before enabling."
+  type        = list(string)
+  default     = null  # Change from [] to null
+  validation {
+    condition = var.availability_zones == null || (
+      length(var.availability_zones) > 0 && 
+      length(var.availability_zones) <= 3
+    )
+    error_message = "Availability zones must be null or between 1-3 zones."
+  }
+}
+
+variable "vm_size" {
+  description = "VM size for AKS nodes. Some sizes don't support availability zones in all regions."
+  type        = string
+  default     = "Standard_DS2_v2"  # Use a zone-supporting size if needed
+}
