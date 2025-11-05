@@ -46,13 +46,18 @@ jobs:
       run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
     - name: Terraform Plan
-      id: plan
       run: |
-        terraform -chdir=${{ env.TF_WORKING_DIR }} plan \
-          -var="environment=${{ env.ENVIRONMENT }}" \
-          -input=false \
-          -out=tfplan
-
+        terraform -chdir=infrastructure/environments/dev plan \
+        -var="environment=dev" \
+        -input=false \
+        -out=tfplan
+        env:
+            ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+            ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+            ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+            ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+            ENVIRONMENT: dev
+            
     - name: Terraform Apply
       id: apply
       run: |
