@@ -46,18 +46,13 @@ jobs:
       run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
     - name: Terraform Plan
+      id: plan
       run: |
-        terraform -chdir=infrastructure/environments/dev plan \
-        -var="environment=dev" \
-        -input=false \
-        -out=tfplan
-        env:
-            ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-            ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-            ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-            ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-            ENVIRONMENT: dev
-            
+        terraform -chdir=${{ env.TF_WORKING_DIR }} plan \
+          -var="environment=${{ env.ENVIRONMENT }}" \
+          -input=false \
+          -out=tfplan
+
     - name: Terraform Apply
       id: apply
       run: |
@@ -69,9 +64,9 @@ jobs:
         cd ${{ env.TF_WORKING_DIR }}
         
         # Extract AKS cluster name
-        AKS_CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "")
-        AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "")
-        ACR_NAME=$(terraform output -raw acr_name 2>/dev/null || echo "")
+        AKS_CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "NOT_CREATED")
+        AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "NOT_CREATED")
+        ACR_NAME=$(terraform output -raw acr_name 2>/dev/null || echo "NOT_CREATED")
         
         echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
         echo "AKS_RESOURCE_GROUP=$AKS_RESOURCE_GROUP" >> $GITHUB_ENV
@@ -84,12 +79,15 @@ jobs:
     - name: Update GitHub Environment
       run: |
         echo "Infrastructure deployment completed successfully!"
-        echo "Next step: Run Docker Build pipeline"
+        echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}"
+        echo "Resource Group: ${{ env.AKS_RESOURCE_GROUP }}"
+        echo "ACR: ${{ env.ACR_NAME }}"
 
     - name: Create Deployment Tag
       run: |
         echo "Infrastructure deployed at $(date)" > infrastructure-deployment.txt
         echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}" >> infrastructure-deployment.txt
+        echo "Resource Group: ${{ env.AKS_RESOURCE_GROUP }}" >> infrastructure-deployment.txt
         echo "ACR: ${{ env.ACR_NAME }}" >> infrastructure-deployment.txt
 
     - name: Upload Infrastructure Details

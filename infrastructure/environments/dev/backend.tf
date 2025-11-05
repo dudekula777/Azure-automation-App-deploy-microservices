@@ -23,12 +23,7 @@ terraform {
 provider "azurerm" {
   features {}  # Only one features block!
   use_cli = false
-  # These are optional since you're using environment variables
-  # You can remove these lines entirely if using env vars
-  subscription_id = "${{ secrets.ARM_SUBSCRIPTION_ID }}"
-  client_id       = "${{ secrets.ARM_CLIENT_ID }}"
-  client_secret   = "${{ secrets.ARM_CLIENT_SECRET }}"
-  tenant_id       = "${{ secrets.ARM_TENANT_ID }}"
+  
 }
 
 provider "random" {
