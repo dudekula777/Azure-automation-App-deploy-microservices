@@ -6,7 +6,7 @@ on:
 jobs:
   terraform:
     name: "1 - Infrastructure (Terraform)"
-    uses: ./.github/workflows/terraform.yml
+    uses: ./.github/workflows/terraform-dev.yml
     secrets: inherit
 
   docker:
