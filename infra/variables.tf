@@ -1,57 +1,72 @@
-
+# -----------------------------
+# Azure Authentication Variables
+# -----------------------------
 variable "client_id" {
   type        = string
-  description = "Azure Client ID"
-  
+  description = "Azure Client ID (Service Principal Application ID)"
 }
 
 variable "client_secret" {
   type        = string
   description = "Azure Client Secret"
-  default     = "your-client-secret"
 }
 
 variable "subscription_id" {
   type        = string
   description = "Azure Subscription ID"
-  default     = "your-subscription-id"
 }
 
 variable "tenant_id" {
   type        = string
   description = "Azure Tenant ID"
-  default     = "your-tenant-id"
 }
 
+# -----------------------------
+# Infrastructure Settings
+# -----------------------------
 variable "aks_resource_group" {
   type        = string
-  description = "Name of the resource group"
-  default     = "lgb-rgp"
+  description = "Name of the resource group for AKS and other resources"
+  default     = "lgb-resourcegroup"
 }
 
 variable "storage_account_name" {
   type        = string
-  description = "Name of the resource group"
-  default     = "lgbtraiacct"
+  description = "Azure Storage Account name for Terraform state backend"
+  default     = "lgbstorage"
 }
 
 variable "aks_acr" {
   type        = string
-  description = "Name of the resource group"
-  default     = "aksstoracr"
+  default     = "lbgacr1989"
+  description = "Azure Container Registry name"
+}
+
+variable "nodepool_name" {
+  description = "Name of the default AKS node pool"
+  type        = string
+  default     = "lbgnodepool"
+}
+variable "aks_acr_name" {
+  type        = string
+  description = "Name of the Azure Container Registry for AKS"
+  default     = "lbgacr1989"
 }
 
 
 variable "location" {
   type        = string
   description = "Azure region for AKS deployment"
-  default     = "West Europe"
+  default     = "canadacentral" # corrected region name
 }
 
+# -----------------------------
+# AKS Cluster Configuration
+# -----------------------------
 variable "cluster_name" {
   type        = string
-  description = "Name of the AKS cluster"
-  default     = "aksclusterpatient"
+  description = "AKS Cluster name"
+  default     = "lbg-aks-cluster"
 }
 
 variable "node_count" {
@@ -66,19 +81,11 @@ variable "node_vm_size" {
   default     = "Standard_D2s_v4"
 }
 
-
-
-#variable "os_type" {
-#  description = "The operating system type for the AKS node pool"
- # type        = string
- # default     = "Linux"  # or "Windows"
-# }
-
+# -----------------------------
+# Networking Configuration
+# -----------------------------
 variable "vnet_subnet_id" {
   type        = string
   description = "Subnet ID for AKS node pool"
-  default     = "/subscriptions/your-subscription-id/resourceGroups/lbs-rg/providers/Microsoft.Network/virtualNetworks/aks-vnet/subnets/aks-subnet"
+  default     = ""
 }
-
-
-

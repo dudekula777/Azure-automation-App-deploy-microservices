@@ -1,41 +1,40 @@
-
-variable "cluster_name" {
-  type        = string
-  description = "Name of the AKS cluster"
-  default     = "lbs-aks-cluster"
-}
-
-variable "nodepool_name" {
-  type        = string
-  description = "Name of the nodepool"
-  default     = "lbgnodepool"
-}
+#####################################
+# VARIABLES
+#####################################
 variable "location" {
-   type        = string
+  type        = string
   description = "Azure region for AKS deployment"
-  default     = "West Europe"
 }
 
 variable "aks_resource_group" {
   type        = string
-  description = "Name of the resource group"
-  default     = "lgb-rgp"
+  description = "Resource group for AKS cluster"
+}
+
+variable "cluster_name" {
+  type        = string
+  description = "AKS cluster name"
+}
+
+variable "nodepool_name" {
+  type        = string
+  description = "Node pool name"
+  default     = "lbgnodepool"
 }
 
 variable "node_count" {
   type        = number
-  description = "Number of nodes in the default node pool"
+  description = "Number of nodes in node pool"
   default     = 2
 }
 
 variable "node_vm_size" {
   type        = string
-  description = "Number of nodes in the default node pool"
-  default     = "Standard_D1_v2"
+  description = "VM size for AKS nodes"
+  default     = "Standard_D2s_v3"
 }
 
 variable "vnet_subnet_id" {
   type        = string
-  description = "Subnet ID for AKS node pool"
-  default     = "/subscriptions/your-subscription-id/resourceGroups/lbs-rg/providers/Microsoft.Network/virtualNetworks/lbs-aks-vnet/subnets/lbs-aks-vnet-subnet"
+  description = "The subnet ID where AKS nodes will be deployed"
 }
