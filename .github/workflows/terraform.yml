@@ -55,18 +55,23 @@ jobs:
 
     - name: Terraform Apply
       id: apply
+      # Only apply if we're on main branch or manual trigger
+      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
       run: |
         terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve tfplan
 
     - name: Get AKS Outputs
       id: outputs
+      # Only run if apply was successful
+      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       run: |
         cd ${{ env.TF_WORKING_DIR }}
         
-        # Extract AKS cluster name
+        # Extract outputs with better error handling
         AKS_CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "NOT_CREATED")
         AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "NOT_CREATED")
         ACR_NAME=$(terraform output -raw acr_name 2>/dev/null || echo "NOT_CREATED")
+        AKS_KUBECONFIG=$(terraform output -raw kube_config 2>/dev/null || echo "NOT_AVAILABLE")
         
         echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
         echo "AKS_RESOURCE_GROUP=$AKS_RESOURCE_GROUP" >> $GITHUB_ENV
@@ -75,24 +80,46 @@ jobs:
         echo "AKS Cluster: $AKS_CLUSTER_NAME"
         echo "Resource Group: $AKS_RESOURCE_GROUP"
         echo "ACR Name: $ACR_NAME"
+        
+        # Create kubeconfig file if available
+        if [ "$AKS_KUBECONFIG" != "NOT_AVAILABLE" ] && [ "$AKS_KUBECONFIG" != "" ]; then
+          echo "$AKS_KUBECONFIG" > kubeconfig
+          echo "Kubeconfig saved for cluster: $AKS_CLUSTER_NAME"
+        fi
 
     - name: Update GitHub Environment
+      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       run: |
         echo "Infrastructure deployment completed successfully!"
         echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}"
         echo "Resource Group: ${{ env.AKS_RESOURCE_GROUP }}"
         echo "ACR: ${{ env.ACR_NAME }}"
+        echo "Next step: Run Docker Build pipeline"
 
     - name: Create Deployment Tag
+      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       run: |
         echo "Infrastructure deployed at $(date)" > infrastructure-deployment.txt
         echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}" >> infrastructure-deployment.txt
         echo "Resource Group: ${{ env.AKS_RESOURCE_GROUP }}" >> infrastructure-deployment.txt
         echo "ACR: ${{ env.ACR_NAME }}" >> infrastructure-deployment.txt
+        echo "Terraform Version: 1.6.0" >> infrastructure-deployment.txt
+        echo "Deployment Trigger: ${{ github.event_name }}" >> infrastructure-deployment.txt
 
     - name: Upload Infrastructure Details
+      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       uses: actions/upload-artifact@v4
       with:
         name: infrastructure-details
-        path: infrastructure-deployment.txt
+        path: |
+          infrastructure-deployment.txt
+          ${{ env.TF_WORKING_DIR }}/tfplan
         retention-days: 30
+
+    - name: Upload Kubeconfig
+      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      uses: actions/upload-artifact@v4
+      with:
+        name: kubeconfig
+        path: kubeconfig
+        retention-days: 1  # Short retention for security

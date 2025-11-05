@@ -21,9 +21,8 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}  # Only one features block!
-  use_cli = false
-  
+  features {}
+  use_cli = false  # Important: prevents Azure CLI fallback
 }
 
 provider "random" {
