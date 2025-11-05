@@ -30,6 +30,11 @@ terraform {
 
 provider "azurerm" {
   features {}
+  features = {}
+  subscription_id = var.subscription_id       # optional if env var is set
+  client_id       = var.client_id             # optional if env var is set
+  client_secret   = var.client_secret         # optional if env var is set
+  tenant_id       = var.tenant_id 
 }
 
 provider "azuread" {
