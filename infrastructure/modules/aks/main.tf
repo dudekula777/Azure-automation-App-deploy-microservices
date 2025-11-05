@@ -39,10 +39,13 @@ resource "azurerm_kubernetes_cluster" "main" {
   kubernetes_version  = var.kubernetes_version
 
   default_node_pool {
-    name            = "default"
-    node_count      = var.node_count
-    vm_size         = var.vm_size
-    vnet_subnet_id  = var.vnet_subnet_id
+    name                = "default"
+    node_count          = var.node_count
+    vm_size             = var.vm_size
+    vnet_subnet_id      = var.vnet_subnet_id
+    enable_auto_scaling = var.enable_auto_scaling
+    min_count           = var.min_count
+    max_count           = var.max_count
   }
 
   identity {
@@ -58,24 +61,16 @@ resource "azurerm_kubernetes_cluster" "main" {
   tags = var.tags
 }
 
-# Separate node pool with availability zones (if needed)
-resource "azurerm_kubernetes_cluster_node_pool" "main" {
-  name                  = "main"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.main.id
-  vm_size               = var.vm_size
-  node_count            = var.node_count
-  availability_zones    = var.availability_zones
-  enable_auto_scaling   = var.enable_auto_scaling
-  min_count            = var.min_count
-  max_count            = var.max_count
-  vnet_subnet_id       = var.vnet_subnet_id
-}
+# ACR role assignment
 resource "azurerm_role_assignment" "aks_acr" {
+  count = var.acr_id != null ? 1 : 0
+
   principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
   role_definition_name             = "AcrPull"
   scope                            = var.acr_id
   skip_service_principal_aad_check = true
 }
+
 
 resource "random_id" "suffix" {
   byte_length = 4
