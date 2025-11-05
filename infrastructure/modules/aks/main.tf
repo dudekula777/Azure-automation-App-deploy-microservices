@@ -28,12 +28,14 @@ resource "azurerm_kubernetes_cluster" "main" {
   tags = var.tags
 }
 
-# Fix: Use for_each with a static set
-resource "azurerm_role_assignment" "aks_acr" {
-  for_each = var.acr_id != null ? toset(["acr-pull-assignment"]) : toset([])
-
-  principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = var.acr_id
-  skip_service_principal_aad_check = true
-}
+# TEMPORARILY COMMENT OUT - Remove circular dependency
+# resource "azurerm_role_assignment" "aks_acr" {
+#   count = var.acr_id != null ? 1 : 0
+# 
+#   principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
+#   role_definition_name             = "AcrPull"
+#   scope                            = var.acr_id
+#   skip_service_principal_aad_check = true
+# 
+#   depends_on = [azurerm_kubernetes_cluster.main]
+# }
