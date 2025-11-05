@@ -3,6 +3,7 @@ variable "client_secret" {}
 variable "subscription_id" {}
 variable "tenant_id" {}
 
+
 # -----------------------------
 # Infrastructure Settings
 # -----------------------------
