@@ -29,15 +29,17 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
-  features = {}
-  subscription_id = var.subscription_id       # optional if env var is set
-  client_id       = var.client_id             # optional if env var is set
-  client_secret   = var.client_secret         # optional if env var is set
+  features {}  # ← Keep only one features block
+  
+  # These are optional since you're using environment variables
+  subscription_id = var.subscription_id
+  client_id       = var.client_id
+  client_secret   = var.client_secret
   tenant_id       = var.tenant_id 
 }
 
 provider "azuread" {
+  # AzureAD provider configuration if needed
 }
 
 provider "kubernetes" {
