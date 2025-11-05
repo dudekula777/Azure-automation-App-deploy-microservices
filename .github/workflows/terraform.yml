@@ -51,15 +51,40 @@ jobs:
         terraform -chdir=${{ env.TF_WORKING_DIR }} plan \
           -var="environment=${{ env.ENVIRONMENT }}" \
           -input=false \
-          -refresh=false \
           -out=tfplan
 
-    - name: Terraform Apply
-      id: apply
-      # Only apply if we're on main branch or manual trigger
+    - name: Terraform Apply - Phase 1 (Resource Group)
+      id: apply-phase1
       if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
       run: |
-        terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve tfplan
+        terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve -target=module.resource_group
+
+    - name: Wait for Resource Group Propagation
+      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      run: |
+        echo "Waiting 15 seconds for resource group to be fully propagated..."
+        sleep 15
+
+    - name: Terraform Apply - Phase 2 (Network, Storage, ACR)
+      id: apply-phase2
+      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      run: |
+        terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve \
+          -target=module.network \
+          -target=module.storage \
+          -target=module.acr
+
+    - name: Wait for Network Resources
+      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      run: |
+        echo "Waiting 30 seconds for network resources to be fully provisioned..."
+        sleep 30
+
+    - name: Terraform Apply - Phase 3 (AKS)
+      id: apply-phase3
+      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      run: |
+        terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve -target=module.aks
 
     - name: Get AKS Outputs
       id: outputs
