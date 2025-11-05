@@ -23,6 +23,8 @@ module "storage" {
   resource_group_name = module.resource_group.name
   location            = var.location
   environment         = var.environment
+
+  depends_on = [module.resource_group]
 }
 
 module "network" {
@@ -31,6 +33,8 @@ module "network" {
   resource_group_name = module.resource_group.name
   location            = var.location
   environment         = var.environment
+
+  depends_on = [module.resource_group]
 }
 
 module "acr" {
@@ -39,6 +43,8 @@ module "acr" {
   resource_group_name = module.resource_group.name
   location            = var.location
   environment         = var.environment
+
+  depends_on = [module.resource_group]
 }
 
 module "aks" {
@@ -51,7 +57,7 @@ module "aks" {
   vnet_subnet_id      = module.network.aks_subnet_id
   environment         = var.environment
   kubernetes_version  = "1.27.9"
-  acr_id              = module.acr.acr_id  # This passes the ACR ID to the AKS module
+  acr_id              = module.acr.acr_id
   
   # Node configuration
   node_count          = 1
@@ -67,4 +73,11 @@ module "aks" {
   max_count          = 3
   
   tags = local.tags
+
+  # Add explicit dependencies
+  depends_on = [
+    module.resource_group,
+    module.network,
+    module.acr
+  ]
 }
