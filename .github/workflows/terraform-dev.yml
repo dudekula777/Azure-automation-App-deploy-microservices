@@ -166,6 +166,6 @@ jobs:
     - name: Test Cluster Connectivity
       if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && env.AKS_CLUSTER_NAME != 'NOT_CREATED'
       run: |
-        echo "Testing AKS cluster connectivity..."
+        echo "Testing AKS cluster connectivity...."
         kubectl get nodes -o wide
         kubectl get namespaces
