@@ -1,0 +1,32 @@
+{{- $namespace := .Values.global.namespace }}
+
+{{- range $svc := list .Values.patientService .Values.appointmentService }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svc.name }}
+  namespace: {{ $namespace }}
+  labels:
+    app: {{ $svc.name }}
+
+spec:
+  replicas: {{ $svc.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ $svc.name }}
+
+  template:
+    metadata:
+      labels:
+        app: {{ $svc.name }}
+
+    spec:
+      containers:
+        - name: {{ $svc.name }}
+          image: {{ include "microservice.image" (dict "Values" $.Values "image" $svc.image) }}
+          ports:
+            - containerPort: {{ $svc.containerPort }}
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+{{- end }}

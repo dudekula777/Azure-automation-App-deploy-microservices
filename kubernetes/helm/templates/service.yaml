@@ -1,0 +1,17 @@
+{{- $namespace := .Values.global.namespace }}
+
+{{- range $svc := list .Values.patientService .Values.appointmentService }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc.name }}
+  namespace: {{ $namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $svc.name }}
+  ports:
+    - port: 80
+      targetPort: {{ $svc.containerPort }}
+{{- end }}

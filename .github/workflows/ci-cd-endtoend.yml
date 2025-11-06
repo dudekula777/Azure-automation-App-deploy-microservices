@@ -1,30 +1,25 @@
 name: End-to-End CI/CD Pipeline
 
 on:
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
   push:
     branches: [ main ]
 
 env:
-  # Azure Service Principal Credentials
   ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
   ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
   ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
   ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
   
-  # Environment Configuration
   ENVIRONMENT: dev
   NAMESPACE: healthcare-dev
   TF_WORKING_DIR: infrastructure/environments/dev
 
 jobs:
-  # ============================================================
-  # STAGE 1: Terraform Infrastructure Provisioning
-  # ============================================================
+
   terraform-infrastructure:
     name: 1 - Terraform Infrastructure
     runs-on: ubuntu-latest
-    environment: dev
     outputs:
       aks-cluster-name: ${{ steps.outputs.outputs.cluster-name }}
       aks-resource-group: ${{ steps.outputs.outputs.resource-group }}
@@ -32,56 +27,41 @@ jobs:
       acr-login-server: ${{ steps.outputs.outputs.acr-login-server }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.0
 
-      - name: Terraform Init, Validate, and Plan
+      - name: Terraform Init → Validate → Plan
         run: |
           terraform -chdir=${{ env.TF_WORKING_DIR }} init
           terraform -chdir=${{ env.TF_WORKING_DIR }} validate
           terraform -chdir=${{ env.TF_WORKING_DIR }} plan \
             -var="environment=${{ env.ENVIRONMENT }}" \
-            -input=false -out=tfplan
+            -out=tfplan
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: github.ref == 'refs/heads/main'
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve
 
       - name: Get Terraform Outputs
         id: outputs
         run: |
           cd ${{ env.TF_WORKING_DIR }}
-          AKS_CLUSTER_NAME=$(terraform output -raw cluster_name)
-          AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name)
-          ACR_NAME=$(terraform output -raw acr_name)
-          ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
-          echo "cluster-name=$AKS_CLUSTER_NAME" >> $GITHUB_OUTPUT
-          echo "resource-group=$AKS_RESOURCE_GROUP" >> $GITHUB_OUTPUT
-          echo "acr-name=$ACR_NAME" >> $GITHUB_OUTPUT
-          echo "acr-login-server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+          echo "cluster-name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "resource-group=$(terraform output -raw resource_group_name)" >> $GITHUB_OUTPUT
+          echo "acr-name=$(terraform output -raw acr_name)" >> $GITHUB_OUTPUT
+          echo "acr-login-server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
 
-  # ============================================================
-  # STAGE 2: Docker Build and Push
-  # ============================================================
+
   docker-build-push:
     name: 2 - Docker Build and Push
     runs-on: ubuntu-latest
-    environment: dev
     needs: terraform-infrastructure
-    if: needs.terraform-infrastructure.result == 'success'
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
       - name: Login to Azure CLI
         run: |
@@ -91,58 +71,36 @@ jobs:
             --tenant ${{ secrets.ARM_TENANT_ID }}
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-      - name: Get ACR Credentials
-        id: acr-creds
+      - name: Login to ACR
         run: |
-          ACR_NAME="${{ needs.terraform-infrastructure.outputs.acr-name }}"
-          RESOURCE_GROUP="${{ needs.terraform-infrastructure.outputs.aks-resource-group }}"
-          az acr update -n $ACR_NAME --resource-group $RESOURCE_GROUP --admin-enabled true
-          ACR_USERNAME=$(az acr credential show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "username" -o tsv)
-          ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "passwords[0].value" -o tsv)
-          echo "username=$ACR_USERNAME" >> $GITHUB_OUTPUT
-          echo "password=$ACR_PASSWORD" >> $GITHUB_OUTPUT
+          az acr login --name ${{ needs.terraform-infrastructure.outputs.acr-name }}
 
-      - name: Log in to ACR
+      - name: Build & Push Patient Service
         run: |
-          echo "${{ steps.acr-creds.outputs.password }}" | docker login \
-            ${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
-            -u ${{ steps.acr-creds.outputs.username }} --password-stdin
-
-      - name: Build and Push Patient Service
-        run: |
-          echo "Building Patient Service Docker image..."
           cd apps/patient-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
 
-      - name: Build and Push Appointment Service
+      - name: Build & Push Appointment Service
         run: |
-          echo "Building Appointment Service Docker image..."
           cd apps/appointment-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
 
-  # ============================================================
-  # STAGE 3: Deploy to AKS
-  # ============================================================
+
   deploy-to-aks:
     name: 3 - Deploy to AKS
     runs-on: ubuntu-latest
-    environment: dev
     needs:
       - terraform-infrastructure
       - docker-build-push
-    if: |
-      needs.terraform-infrastructure.result == 'success' && 
-      needs.docker-build-push.result == 'success'
 
     outputs:
       LOADBALANCER_IP: ${{ steps.verify.outputs.LOADBALANCER_IP }}
       INGRESS_HOST: ${{ steps.verify.outputs.INGRESS_HOST }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Login to Azure CLI
         run: |
@@ -152,104 +110,60 @@ jobs:
             --tenant ${{ secrets.ARM_TENANT_ID }}
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-      - name: Get AKS Credentials
+      - name: AKS credentials
         run: |
           az aks get-credentials \
             --resource-group ${{ needs.terraform-infrastructure.outputs.aks-resource-group }} \
             --name ${{ needs.terraform-infrastructure.outputs.aks-cluster-name }} \
             --overwrite-existing
 
-      - name: Setup Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: 3.13.0
+      - uses: azure/setup-helm@v3
 
-      # ✅ Ensure Namespace Exists
-      - name: Ensure namespace exists
-        run: |
-          echo "Checking if namespace '${{ env.NAMESPACE }}' exists..."
-          if kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1; then
-            echo "✅ Namespace '${{ env.NAMESPACE }}' already exists."
-          else
-            echo "🚀 Namespace '${{ env.NAMESPACE }}' not found. Creating..."
-            kubectl create namespace ${{ env.NAMESPACE }}
-          fi
+      - name: Ensure Namespace Exists
+        run: kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-      # ✅ Patch Namespace for Helm Ownership (fix atomic failures)
-      - name: Patch existing namespace for Helm ownership
-        run: |
-          echo "Patching namespace '${{ env.NAMESPACE }}' with Helm ownership metadata..."
-          kubectl patch namespace ${{ env.NAMESPACE }} \
-            -p '{"metadata":{"labels":{"app.kubernetes.io/managed-by":"Helm"},"annotations":{"meta.helm.sh/release-name":"healthcare-microservices","meta.helm.sh/release-namespace":"${{ env.NAMESPACE }}"}}}' || true
-
-      - name: Build Helm dependencies
+      - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
 
-      - name: Lint Helm Chart
+      - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      - name: Deploy Healthcare Microservices with Helm
+      - name: Helm Upgrade/Install
         run: |
-          echo "🚀 Deploying healthcare microservices with Helm..."
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
-            --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
-            --set global.environment=${{ env.ENVIRONMENT }} \
             --set global.namespace=${{ env.NAMESPACE }} \
-            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
-            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
+            --set global.environment=${{ env.ENVIRONMENT }} \
+            --set global.imageRegistry="${{ needs.terraform-infrastructure.outputs.acr-login-server }}/" \
+            --set patientService.image.repository="/patient-service" \
+            --set appointmentService.image.repository="/appointment-service" \
             --atomic --wait --timeout 1200s
-          echo "✅ Helm deployment completed successfully"
 
       - name: Verify Deployment
         id: verify
         run: |
-          echo "=== 🕵️ Verifying Kubernetes Resources ==="
-          kubectl get deployments -n ${{ env.NAMESPACE }}
-          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-          kubectl get services -n ${{ env.NAMESPACE }}
-          kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found."
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          kubectl get svc -n ${{ env.NAMESPACE }}
+          kubectl get ingress -n ${{ env.NAMESPACE }}
 
-          echo "=== 🌐 Fetching Service Endpoints ==="
-          LOADBALANCER_IP=$(kubectl get svc -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "N/A")
-          INGRESS_HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "N/A")
-          echo "LOADBALANCER_IP=${LOADBALANCER_IP}" >> $GITHUB_OUTPUT
-          echo "INGRESS_HOST=${INGRESS_HOST}" >> $GITHUB_OUTPUT
-          echo "✅ LoadBalancer IP: ${LOADBALANCER_IP}"
-          echo "✅ Ingress Host: ${INGRESS_HOST}"
+          LB=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+          HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}')
 
-  # ============================================================
-  # STAGE 4: Pipeline Summary
-  # ============================================================
+          echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
+          echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
+
+
   pipeline-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs:
-      - terraform-infrastructure
-      - docker-build-push
-      - deploy-to-aks
+    needs: [terraform-infrastructure, docker-build-push, deploy-to-aks]
     if: always()
-    steps:
-      - name: Pipeline Status
-        run: |
-          echo "## 🧩 Pipeline Execution Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Terraform Infrastructure | ${{ needs.terraform-infrastructure.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker Build & Push | ${{ needs.docker-build-push.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| AKS Deployment | ${{ needs.deploy-to-aks.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [[ "${{ needs.terraform-infrastructure.result }}" == "success" && \
-                "${{ needs.docker-build-push.result }}" == "success" && \
-                "${{ needs.deploy-to-aks.result }}" == "success" ]]; then
-            echo "🎉 **All stages completed successfully!**" >> $GITHUB_STEP_SUMMARY
-            echo "Your healthcare microservices are live on AKS 🚀" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🌐 **Service Endpoints**:" >> $GITHUB_STEP_SUMMARY
-            echo "- LoadBalancer IP: ${{ needs.deploy-to-aks.outputs.LOADBALANCER_IP }}" >> $GITHUB_STEP_SUMMARY
-            echo "- Ingress Host: ${{ needs.deploy-to-aks.outputs.INGRESS_HOST }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Pipeline failed in one or more stages**" >> $GITHUB_STEP_SUMMARY
-            echo "Check stage logs for details." >> $GITHUB_STEP_SUMMARY
+    steps:
+      - name: Summary
+        run: |
+          echo "## Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Terraform: ${{ needs.terraform-infrastructure.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Build: ${{ needs.docker-build-push.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- AKS Deploy: ${{ needs.deploy-to-aks.result }}" >> $GITHUB_STEP_SUMMARY
