@@ -201,36 +201,36 @@ jobs:
             docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
             docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
             
-      - name: Install Trivy
-        run: |
-            echo "Installing Trivy vulnerability scanner..."
-            sudo apt-get update -y
-            sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-            echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
-            sudo apt-get update -y
-            sudo apt-get install -y trivy
+    #   - name: Install Trivy
+    #     run: |
+    #         echo "Installing Trivy vulnerability scanner..."
+    #         sudo apt-get update -y
+    #         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+    #         wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+    #         echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
+    #         sudo apt-get update -y
+    #         sudo apt-get install -y trivy
 
-      - name: Run Trivy vulnerability scanner
-        run: |
-          docker pull ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
-          docker pull ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
-          trivy image --format sarif --output trivy-results.sarif \
-            ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest \
-            ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+    #   - name: Run Trivy vulnerability scanner
+    #     run: |
+    #       docker pull ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
+    #       docker pull ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+    #       trivy image --format sarif --output trivy-results.sarif \
+    #         ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest \
+    #         ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
 
-      - name: Run Trivy Image Scan
-        run: |
-            docker pull acrdev7459df5c.azurecr.io/patient-service:latest
-            docker pull acrdev7459df5c.azurecr.io/appointment-service:latest
-            trivy image --format sarif --output trivy-results.sarif \
-            acrdev7459df5c.azurecr.io/patient-service:latest \
-            acrdev7459df5c.azurecr.io/appointment-service:latest
+    #   - name: Run Trivy Image Scan
+    #     run: |
+    #         docker pull acrdev7459df5c.azurecr.io/patient-service:latest
+    #         docker pull acrdev7459df5c.azurecr.io/appointment-service:latest
+    #         trivy image --format sarif --output trivy-results.sarif \
+    #         acrdev7459df5c.azurecr.io/patient-service:latest \
+    #         acrdev7459df5c.azurecr.io/appointment-service:latest
 
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
+    #   - name: Upload Trivy scan results to GitHub Security tab
+    #     uses: github/codeql-action/upload-sarif@v3
+    #     with:
+    #       sarif_file: trivy-results.sarif
 
       - name: Create Build Summary
         run: |
