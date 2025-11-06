@@ -297,16 +297,17 @@ jobs:
         run: |
           echo "Building Helm dependencies..."
           helm dependency build ./kubernetes/helm
-          
+
       - name: Deploy Healthcare Microservices
         run: |
-          helm upgrade --install healthcare-microservices \
-            ./kubernetes/helm \
-            --namespace ${{ env.NAMESPACE }} \
-            --create-namespace \
-            --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
-            --set global.environment=${{ env.ENVIRONMENT }} \
-            --wait --timeout 600s
+          helm lint ./kubernetes/helm
+        
+          helm upgrade --install healthcare-microservices ./kubernetes/helm \
+          --namespace healthcare-dev \
+          --create-namespace \
+          --set global.imageRegistry=acrdev7459df5c.azurecr.io \
+          --set global.environment=dev \
+          --wait --timeout 600s
 
   # ============================================================
   # STAGE 4: Pipeline Summary
