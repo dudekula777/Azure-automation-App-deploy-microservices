@@ -20,9 +20,12 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   network_profile {
-    network_plugin = "azure"
-    service_cidr   = var.service_cidr
-    dns_service_ip = var.dns_service_ip
+  dns_service_ip     = "10.1.0.10"
+  service_cidr       = "10.1.0.0/16"
+  docker_bridge_cidr = "172.17.0.1/16"
+  network_plugin     = "azure"
+  load_balancer_sku  = "standard"
+  outbound_type      = "loadBalancer"
   }
 
   tags = var.tags
