@@ -30,7 +30,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.0
@@ -67,7 +66,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -93,7 +91,7 @@ jobs:
 
 
   # ============================================================
-  # 3️⃣ Deploy to AKS with Helm (Improved)
+  # 3️⃣ Deploy to AKS with Helm (Enhanced)
   # ============================================================
   deploy-to-aks:
     name: 3 - Deploy to AKS
@@ -108,7 +106,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -126,7 +123,6 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Ensure Namespace Exists and is Helm-managed
       - name: Ensure Namespace Exists and Patch Ownership
         run: |
           kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create namespace ${{ env.NAMESPACE }}
@@ -140,8 +136,8 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ Helm Install with Retry Logic
-      - name: Deploy Healthcare Microservices with Helm (with Retry)
+      # ✅ Improved Helm Deploy + Debug
+      - name: Deploy Healthcare Microservices with Helm (Enhanced)
         run: |
           echo "🚀 Deploying healthcare microservices..."
           set +e
@@ -168,15 +164,24 @@ jobs:
           set -e
 
           echo "✅ Helm release applied. Checking rollout status..."
-          echo "⏳ Waiting for Patient Service rollout..."
-          kubectl rollout status deployment/patient-service -n ${{ env.NAMESPACE }} --timeout=300s || true
-          echo "⏳ Waiting for Appointment Service rollout..."
-          kubectl rollout status deployment/appointment-service -n ${{ env.NAMESPACE }} --timeout=300s || true
+          echo "=== Checking pod states before rollout checks ==="
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
 
-          echo "✅ Rollout checks finished."
-          echo "🧠 Gathering debug info..."
-          kubectl get pods -n ${{ env.NAMESPACE }}
-          kubectl describe pods -n ${{ env.NAMESPACE }} | tail -n 40
+          for DEPLOY in patient-service appointment-service; do
+            echo "⏳ Waiting for $DEPLOY rollout..."
+            if ! kubectl rollout status deployment/$DEPLOY -n ${{ env.NAMESPACE }} --timeout=300s; then
+              echo "⚠️ Rollout for $DEPLOY did not complete in time. Collecting diagnostics..."
+              kubectl describe deployment/$DEPLOY -n ${{ env.NAMESPACE }} | tail -n 40
+              POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$DEPLOY -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+              if [ -n "$POD" ]; then
+                echo "📦 Logs for pod: $POD"
+                kubectl logs -n ${{ env.NAMESPACE }} $POD --tail=100 || true
+              fi
+            fi
+          done
+
+          echo "✅ Rollout check finished. Cluster state summary:"
+          kubectl get all -n ${{ env.NAMESPACE }}
 
       # ✅ Post-Deployment Verification
       - name: Verify Deployment
@@ -193,7 +198,6 @@ jobs:
 
           echo "✅ LoadBalancer IP: ${LB}"
           echo "✅ Ingress Host: ${HOST}"
-
           echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
 
@@ -206,7 +210,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [terraform-infrastructure, docker-build-push, deploy-to-aks]
     if: always()
-
     steps:
       - name: Summary
         run: |
