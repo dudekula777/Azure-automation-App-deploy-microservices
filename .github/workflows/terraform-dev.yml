@@ -85,13 +85,19 @@ jobs:
 
     - name: Get AKS Outputs
       id: outputs
-      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      # Only run if ALL apply phases were successful AND we're on main branch or manual trigger
+      if: |
+        steps.apply-phase1.outcome == 'success' &&
+        steps.apply-phase2.outcome == 'success' && 
+        steps.apply-phase3.outcome == 'success' &&
+        (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       run: |
         cd ${{ env.TF_WORKING_DIR }}
         
-        AKS_CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "NOT_CREATED")
-        AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || echo "NOT_CREATED")
-        ACR_NAME=$(terraform output -raw acr_name 2>/dev/null || echo "NOT_CREATED")
+        # Remove error suppression to fail properly if outputs aren't available
+        AKS_CLUSTER_NAME=$(terraform output -raw cluster_name)
+        AKS_RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+        ACR_NAME=$(terraform output -raw acr_name)
         
         echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
         echo "AKS_RESOURCE_GROUP=$AKS_RESOURCE_GROUP" >> $GITHUB_ENV
@@ -102,7 +108,8 @@ jobs:
         echo "ACR Name: $ACR_NAME"
 
     - name: Update GitHub Environment
-      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      # Only run if outputs step was successful (indicating all infrastructure was deployed)
+      if: steps.outputs.outcome == 'success'
       run: |
         echo "Infrastructure deployment completed successfully!"
         echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}"
@@ -110,7 +117,8 @@ jobs:
         echo "ACR: ${{ env.ACR_NAME }}"
 
     - name: Create Deployment Tag
-      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      # Only run if outputs step was successful
+      if: steps.outputs.outcome == 'success'
       run: |
         echo "Infrastructure deployed at $(date)" > infrastructure-deployment.txt
         echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}" >> infrastructure-deployment.txt
@@ -118,9 +126,24 @@ jobs:
         echo "ACR: ${{ env.ACR_NAME }}" >> infrastructure-deployment.txt
 
     - name: Upload Infrastructure Details
-      if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      # Only run if outputs step was successful
+      if: steps.outputs.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: infrastructure-details
         path: infrastructure-deployment.txt
         retention-days: 30
+
+    # Add a failure notification step
+    - name: Notify on Failure
+      if: |
+        failure() && 
+        (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+      run: |
+        echo "## Terraform Deployment Failed" >> $GITHUB_STEP_SUMMARY
+        echo "One or more Terraform apply phases failed. Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Failed phases:" >> $GITHUB_STEP_SUMMARY
+        echo "- Phase 1 (Resource Group): ${{ steps.apply-phase1.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Phase 2 (Network, Storage, ACR): ${{ steps.apply-phase2.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Phase 3 (AKS): ${{ steps.apply-phase3.outcome }}" >> $GITHUB_STEP_SUMMARY
