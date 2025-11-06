@@ -194,11 +194,14 @@ jobs:
 
       - name: Build and Push Appointment Service
         run: |
-          mkdir -p /tmp/docker-build/appointment-service
-          cp -r $GITHUB_WORKSPACE/apps/appointment-service/* /tmp/docker-build/appointment-service/
-          cd /tmp/docker-build/appointment-service
-          docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
-          docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+          mecho "Building Appointment Service Docker image..."
+            cd $GITHUB_WORKSPACE/apps/appointment-service
+            echo "Current directory: $(pwd)"
+            ls -la
+            cat Dockerfile || echo "Dockerfile missing!"
+            docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
+            docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+
 
       - name: Run Trivy vulnerability scanner
         run: |

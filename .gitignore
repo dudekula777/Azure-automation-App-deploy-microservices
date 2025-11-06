@@ -1,17 +1,6 @@
 # Terraform
-**/.terraform/*
-*.tfstate
-*.tfstate.*
-*.tfvars
-*.tfvars.json
-.terraform.tfstate.lock.info
+.terraform
 
-# Kubernetes
-**/*.kubeconfig
-**/kubeconfig
-
-# Docker
-Dockerfile
 
 # Node.js
 node_modules/
@@ -33,10 +22,7 @@ Thumbs.db
 *.log
 logs/
 
-# Environment files
-.env
-.env.local
-.env.*.local
+
 
 # Temporary files
 *.tmp
