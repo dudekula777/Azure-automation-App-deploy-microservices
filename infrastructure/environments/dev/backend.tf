@@ -13,8 +13,8 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "tfstate-rg-dev"
-    storage_account_name = "tfstatestorage202020"
+    resource_group_name  = "rg-dev-3b224b32"  # Use your main resource group
+    storage_account_name = "tfstatedev6585c5a7"  # Use your storage account name
     container_name       = "tfstate"
     key                  = "dev.terraform.tfstate"
   }
