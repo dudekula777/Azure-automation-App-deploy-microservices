@@ -12,3 +12,8 @@ variable "environment" {
   description = "Environment name"
   type        = string
 }
+variable "acr_id" {
+  description = "The ID of the Azure Container Registry"
+  type        = string
+  default     = ""
+}
