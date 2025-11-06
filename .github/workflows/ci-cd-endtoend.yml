@@ -181,25 +181,26 @@ jobs:
         run: |
           echo "${{ steps.acr-creds.outputs.password }}" | docker login ${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             -u ${{ steps.acr-creds.outputs.username }} --password-stdin
+
       - name: Build and Push Patient Service
         run: |
-            echo "Building Patient Service Docker image..."
-            cd $GITHUB_WORKSPACE/apps/patient-service
-            echo "Current directory: $(pwd)"
-            ls -la
-            cat Dockerfile || echo "Dockerfile missing!"
-            docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
-            docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
+          echo "Building Patient Service Docker image..."
+          cd $GITHUB_WORKSPACE/apps/patient-service
+          echo "Current directory: $(pwd)"
+          ls -la
+          cat Dockerfile || echo "Dockerfile missing!"
+          docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
+          docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
         
       - name: Build and Push Appointment Service
         run: |
-            echo "Building Appointment Service Docker image..."
-            cd $GITHUB_WORKSPACE/apps/appointment-service
-            echo "Current directory: $(pwd)"
-            ls -la
-            cat Dockerfile || echo "Dockerfile missing!"
-            docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
-            docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+          echo "Building Appointment Service Docker image..."
+          cd $GITHUB_WORKSPACE/apps/appointment-service
+          echo "Current directory: $(pwd)"
+          ls -la
+          cat Dockerfile || echo "Dockerfile missing!"
+          docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
+          docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
 
       - name: Create Build Summary
         run: |
@@ -258,26 +259,17 @@ jobs:
         with:
           version: 3.13.0
 
-      # ✅ SOLUTION 1: Clean Up and Recreate Namespace
       - name: Clean Up Existing Namespace
-        id: cleanup-namespace
         run: |
           echo "🔍 Checking for existing namespace: ${{ env.NAMESPACE }}"
           if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
-            echo "⚠️  Namespace exists but not managed by Helm. Cleaning up..."
+            echo "⚠️  Namespace exists. Deleting it..."
             kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s
             echo "✅ Namespace deleted successfully"
-            echo "namespace_cleaned=true" >> $GITHUB_OUTPUT
+            sleep 10
           else
             echo "✅ No existing namespace found"
-            echo "namespace_cleaned=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Wait After Namespace Cleanup
-        if: steps.cleanup-namespace.outputs.namespace_cleaned == 'true'
-        run: |
-          echo "⏳ Waiting for namespace cleanup to complete..."
-          sleep 15
 
       - name: Build Helm dependencies
         run: |
@@ -293,7 +285,6 @@ jobs:
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
-            --create-namespace \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --wait --timeout 600s
