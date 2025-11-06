@@ -119,8 +119,12 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      - name: Ensure Namespace Exists
-        run: kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+      # ✅ Namespace Helm-ownership patch (safe to re-run)
+      - name: Patch Namespace for Helm Ownership
+        run: |
+          kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite || true
+          kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-name=healthcare-microservices --overwrite || true
+          kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-namespace=${{ env.NAMESPACE }} --overwrite || true
 
       - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
@@ -128,17 +132,19 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
+      # ✅ NEW UPDATED HELM COMMAND YOU REQUESTED
       - name: Helm Upgrade/Install
         run: |
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
+            --create-namespace=false \
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --set global.imageRegistry="${{ needs.terraform-infrastructure.outputs.acr-login-server }}" \
             --set patientService.image.repository="patient-service" \
             --set appointmentService.image.repository="appointment-service" \
-            --atomic --timeout 600s
+            --atomic --wait --timeout 600s
 
       - name: Verify Deployment
         id: verify
