@@ -1,7 +1,7 @@
 name: 2 - Docker Build and Push
 
 on:
-  workflow_dispatch:  # Manual trigger after Terraform
+  workflow_dispatch:  # Manual trigger
   workflow_run:
     workflows: ["1 - Terraform Infrastructure"]
     types:
@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     
-    # Add permissions for security events (fixes Trivy warning)
     permissions:
       security-events: write
       actions: read
@@ -26,74 +25,56 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download Infrastructure Details
-      uses: actions/download-artifact@v4
+    - name: Login to Azure CLI
+      uses: azure/login@v1
       with:
-        name: infrastructure-details
-        path: ./
+        client-id: ${{ secrets.ARM_CLIENT_ID }}
+        tenant-id: ${{ secrets.ARM_TENANT_ID }}
+        subscription-id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-    - name: Display Infrastructure Info
+    - name: Get ACR Credentials
+      id: acr-creds
       run: |
-        echo "=== Infrastructure Details ==="
-        cat infrastructure-deployment.txt || echo "No infrastructure details found"
+        # Update with your actual ACR name and resource group
+        ACR_NAME="acrdev7459df5c"
+        RESOURCE_GROUP="rg-dev-ab993d7f"
         
-        # Debug: Check if secrets are available
-        echo "ACR Registry available: ${{ secrets.ACR_REGISTRY != '' }}"
-        echo "ACR Username available: ${{ secrets.ACR_USERNAME != '' }}"
-        echo "ACR Password available: ${{ secrets.ACR_PASSWORD != '' }}"
+        # Enable admin user
+        az acr update -n $ACR_NAME --resource-group $RESOURCE_GROUP --admin-enabled true
+        
+        # Get credentials
+        ACR_USERNAME=$(az acr credential show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "username" -o tsv)
+        ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "passwords[0].value" -o tsv)
+        ACR_LOGIN_SERVER=$(az acr show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "loginServer" -o tsv)
+        
+        # Set outputs
+        echo "username=$ACR_USERNAME" >> $GITHUB_OUTPUT
+        echo "password=$ACR_PASSWORD" >> $GITHUB_OUTPUT
+        echo "login-server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+        
+        echo "ACR Registry: $ACR_LOGIN_SERVER"
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
     - name: Log in to Azure Container Registry
-      uses: azure/docker-login@v1
-      with:
-        login-server: ${{ secrets.ACR_REGISTRY }}
-        username: ${{ secrets.ACR_USERNAME }}
-        password: ${{ secrets.ACR_PASSWORD }}
-      # Continue if login fails to see other errors
-      continue-on-error: true
-
-    - name: Alternative ACR Login (if above fails)
-      if: steps.docker-login.outcome == 'failure'
       run: |
-        echo "Trying alternative login method..."
-        echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_REGISTRY }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
-
-    - name: Extract Docker metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: |
-          ${{ secrets.ACR_REGISTRY }}/patient-service
-          ${{ secrets.ACR_REGISTRY }}/appointment-service
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=sha,prefix={{abbrev(7)}}
+        echo "${{ steps.acr-creds.outputs.password }}" | docker login ${{ steps.acr-creds.outputs.login-server }} -u ${{ steps.acr-creds.outputs.username }} --password-stdin
 
     - name: Build and Push Patient Service
-      id: build-patient
       run: |
-        echo "Building Patient Service..."
         docker buildx build \
           --push \
-          --tag ${{ secrets.ACR_REGISTRY }}/patient-service:latest \
-          --tag ${{ secrets.ACR_REGISTRY }}/patient-service:${{ github.sha }} \
+          --tag ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest \
           --file ./apps/patient-service/Dockerfile \
           ./apps/patient-service/
         echo "Patient Service image pushed successfully"
 
     - name: Build and Push Appointment Service
-      id: build-appointment
       run: |
-        echo "Building Appointment Service..."
         docker buildx build \
           --push \
-          --tag ${{ secrets.ACR_REGISTRY }}/appointment-service:latest \
-          --tag ${{ secrets.ACR_REGISTRY }}/appointment-service:${{ github.sha }} \
+          --tag ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest \
           --file ./apps/appointment-service/Dockerfile \
           ./apps/appointment-service/
         echo "Appointment Service image pushed successfully"
@@ -102,8 +83,8 @@ jobs:
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: |
-          ${{ secrets.ACR_REGISTRY }}/patient-service:latest
-          ${{ secrets.ACR_REGISTRY }}/appointment-service:latest
+          ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest
+          ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest
         format: 'sarif'
         output: 'trivy-results.sarif'
 
@@ -112,19 +93,11 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-    - name: Verify Pushed Images
-      run: |
-        echo "Verifying images in ACR..."
-        echo "Images should now be available in: ${{ secrets.ACR_REGISTRY }}"
-        echo "- ${{ secrets.ACR_REGISTRY }}/patient-service:latest"
-        echo "- ${{ secrets.ACR_REGISTRY }}/appointment-service:latest"
-
     - name: Create Build Summary
       run: |
         echo "Docker images built and pushed at $(date)" > docker-build-summary.txt
-        echo "Patient Service: ${{ secrets.ACR_REGISTRY }}/patient-service:latest" >> docker-build-summary.txt
-        echo "Appointment Service: ${{ secrets.ACR_REGISTRY }}/appointment-service:latest" >> docker-build-summary.txt
-        echo "ACR Registry: ${{ secrets.ACR_REGISTRY }}" >> docker-build-summary.txt
+        echo "Patient Service: ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest" >> docker-build-summary.txt
+        echo "Appointment Service: ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest" >> docker-build-summary.txt
 
     - name: Upload Build Summary
       uses: actions/upload-artifact@v4
@@ -136,4 +109,3 @@ jobs:
     - name: Docker Build Complete
       run: |
         echo "✅ Docker build and push completed successfully!"
-        echo "Next step: Run Deployment pipeline to deploy to AKS"
