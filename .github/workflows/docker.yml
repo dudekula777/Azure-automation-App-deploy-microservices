@@ -2,11 +2,10 @@ name: 2 - Docker Build and Push
 
 on:
   workflow_dispatch:  # Manual trigger after Terraform
-  # Uncomment below if you want it to auto-trigger after terraform
-  # workflow_run:
-  #   workflows: ["1 - Terraform Infrastructure"]
-  #   types:
-  #     - completed
+  workflow_run:
+    workflows: ["1 - Terraform Infrastructure"]
+    types:
+      - completed
 
 env:
   ENVIRONMENT: 'dev'
@@ -16,6 +15,12 @@ jobs:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
     environment: dev
+    
+    # Add permissions for security events (fixes Trivy warning)
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
 
     steps:
     - name: Checkout code
@@ -32,9 +37,10 @@ jobs:
         echo "=== Infrastructure Details ==="
         cat infrastructure-deployment.txt || echo "No infrastructure details found"
         
-        # These should be set as GitHub secrets after terraform runs
-        echo "ACR Registry: ${{ secrets.ACR_REGISTRY }}"
-        echo "AKS Cluster: ${{ secrets.AKS_CLUSTER_NAME }}"
+        # Debug: Check if secrets are available
+        echo "ACR Registry available: ${{ secrets.ACR_REGISTRY != '' }}"
+        echo "ACR Username available: ${{ secrets.ACR_USERNAME != '' }}"
+        echo "ACR Password available: ${{ secrets.ACR_PASSWORD != '' }}"
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -45,36 +51,73 @@ jobs:
         login-server: ${{ secrets.ACR_REGISTRY }}
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
+      # Continue if login fails to see other errors
+      continue-on-error: true
+
+    - name: Alternative ACR Login (if above fails)
+      if: steps.docker-login.outcome == 'failure'
+      run: |
+        echo "Trying alternative login method..."
+        echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_REGISTRY }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
+
+    - name: Extract Docker metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ secrets.ACR_REGISTRY }}/patient-service
+          ${{ secrets.ACR_REGISTRY }}/appointment-service
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{abbrev(7)}}
 
     - name: Build and Push Patient Service
       id: build-patient
       run: |
         echo "Building Patient Service..."
-        docker build -t ${{ secrets.ACR_REGISTRY }}/patient-service:latest ./apps/patient-service/
-        docker push ${{ secrets.ACR_REGISTRY }}/patient-service:latest
+        docker buildx build \
+          --push \
+          --tag ${{ secrets.ACR_REGISTRY }}/patient-service:latest \
+          --tag ${{ secrets.ACR_REGISTRY }}/patient-service:${{ github.sha }} \
+          --file ./apps/patient-service/Dockerfile \
+          ./apps/patient-service/
         echo "Patient Service image pushed successfully"
 
     - name: Build and Push Appointment Service
       id: build-appointment
       run: |
         echo "Building Appointment Service..."
-        docker build -t ${{ secrets.ACR_REGISTRY }}/appointment-service:latest ./apps/appointment-service/
-        docker push ${{ secrets.ACR_REGISTRY }}/appointment-service:latest
+        docker buildx build \
+          --push \
+          --tag ${{ secrets.ACR_REGISTRY }}/appointment-service:latest \
+          --tag ${{ secrets.ACR_REGISTRY }}/appointment-service:${{ github.sha }} \
+          --file ./apps/appointment-service/Dockerfile \
+          ./apps/appointment-service/
         echo "Appointment Service image pushed successfully"
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: |
+          ${{ secrets.ACR_REGISTRY }}/patient-service:latest
+          ${{ secrets.ACR_REGISTRY }}/appointment-service:latest
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
 
     - name: Verify Pushed Images
       run: |
         echo "Verifying images in ACR..."
-        # List images in ACR (if az cli is available)
         echo "Images should now be available in: ${{ secrets.ACR_REGISTRY }}"
         echo "- ${{ secrets.ACR_REGISTRY }}/patient-service:latest"
         echo "- ${{ secrets.ACR_REGISTRY }}/appointment-service:latest"
-
-    - name: Run Security Scan
-      run: |
-        echo "Running basic security checks..."
-        # This would typically run Trivy or other security scanners
-        echo "Security scan completed for both images"
 
     - name: Create Build Summary
       run: |
