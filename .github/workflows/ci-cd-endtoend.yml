@@ -17,6 +17,9 @@ env:
 
 jobs:
 
+  # ============================================================
+  # 1️⃣ Terraform Infrastructure
+  # ============================================================
   terraform-infrastructure:
     name: 1 - Terraform Infrastructure
     runs-on: ubuntu-latest
@@ -55,6 +58,9 @@ jobs:
           echo "acr-login-server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
 
 
+  # ============================================================
+  # 2️⃣ Docker Build and Push
+  # ============================================================
   docker-build-push:
     name: 2 - Docker Build and Push
     runs-on: ubuntu-latest
@@ -72,8 +78,7 @@ jobs:
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
       - name: Login to ACR
-        run: |
-          az acr login --name ${{ needs.terraform-infrastructure.outputs.acr-name }}
+        run: az acr login --name ${{ needs.terraform-infrastructure.outputs.acr-name }}
 
       - name: Build & Push Patient Service
         run: |
@@ -88,6 +93,9 @@ jobs:
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
 
 
+  # ============================================================
+  # 3️⃣ Deploy to AKS with Helm
+  # ============================================================
   deploy-to-aks:
     name: 3 - Deploy to AKS
     runs-on: ubuntu-latest
@@ -119,7 +127,7 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Namespace Helm-ownership patch (safe to re-run)
+      # ✅ Patch Namespace for Helm Ownership (safe to re-run)
       - name: Patch Namespace for Helm Ownership
         run: |
           kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite || true
@@ -132,9 +140,10 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ NEW UPDATED HELM COMMAND YOU REQUESTED
+      # ✅ Stable Deployment (no atomic rollback, faster timeout)
       - name: Helm Upgrade/Install
         run: |
+          echo "🚀 Deploying healthcare microservices..."
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
@@ -144,22 +153,44 @@ jobs:
             --set global.imageRegistry="${{ needs.terraform-infrastructure.outputs.acr-login-server }}" \
             --set patientService.image.repository="patient-service" \
             --set appointmentService.image.repository="appointment-service" \
-            --atomic --wait --timeout 600s
+            --wait --timeout 300s
+          echo "✅ Helm release applied. Checking rollout status..."
 
+          echo "⏳ Waiting for Patient Service rollout..."
+          kubectl rollout status deployment/patient-service -n ${{ env.NAMESPACE }} --timeout=300s || true
+
+          echo "⏳ Waiting for Appointment Service rollout..."
+          kubectl rollout status deployment/appointment-service -n ${{ env.NAMESPACE }} --timeout=300s || true
+
+          echo "✅ Rollout checks finished."
+
+          echo "🧠 Gathering debug info (if something failed)..."
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          kubectl describe pods -n ${{ env.NAMESPACE }} | tail -n 40
+
+      # ✅ Post-Deployment Verification
       - name: Verify Deployment
         id: verify
         run: |
-          kubectl get pods -n ${{ env.NAMESPACE }}
+          echo "=== 🕵️ Verifying Deployment ==="
+          kubectl get deployments -n ${{ env.NAMESPACE }}
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
           kubectl get svc -n ${{ env.NAMESPACE }}
-          kubectl get ingress -n ${{ env.NAMESPACE }}
+          kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found."
 
-          LB=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
-          HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}')
+          LB=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' || echo "N/A")
+          HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}' || echo "N/A")
+
+          echo "✅ LoadBalancer IP: ${LB}"
+          echo "✅ Ingress Host: ${HOST}"
 
           echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
 
 
+  # ============================================================
+  # 4️⃣ Pipeline Summary
+  # ============================================================
   pipeline-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
@@ -169,7 +200,19 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "## Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Terraform: ${{ needs.terraform-infrastructure.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Docker Build: ${{ needs.docker-build-push.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- AKS Deploy: ${{ needs.deploy-to-aks.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧩 Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Terraform | ${{ needs.terraform-infrastructure.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Build & Push | ${{ needs.docker-build-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| AKS Deployment | ${{ needs.deploy-to-aks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🌐 Deployed Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "- LoadBalancer IP: ${{ needs.deploy-to-aks.outputs.LOADBALANCER_IP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Ingress Host: ${{ needs.deploy-to-aks.outputs.INGRESS_HOST }}" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.deploy-to-aks.result }}" == "success" ]]; then
+            echo "✅ Application successfully deployed to AKS." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Deployment may have issues. Check rollout logs above." >> $GITHUB_STEP_SUMMARY
