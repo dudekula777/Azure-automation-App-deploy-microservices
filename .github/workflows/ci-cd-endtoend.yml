@@ -618,5 +618,5 @@ EOF
           echo "Your application is now deployed and running in AKS." >> $GITHUB_STEP_SUMMARY
         else
           echo "❌ **Pipeline failed in one or more stages**" >> $GITHUB_STEP_SUMMARY
-          echo "Check the failed stage logs for details." >> $GITHUB_STEP_SUMMARY
+          echo "Check the failed stage logs for details.." >> $GITHUB_STEP_SUMMARY
         fi
