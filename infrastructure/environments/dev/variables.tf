@@ -19,7 +19,7 @@ variable "kubernetes_version" {
 variable "default_node_count" {
   description = "Default node count for AKS"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "subscription_id" {
