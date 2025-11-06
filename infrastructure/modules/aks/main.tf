@@ -10,7 +10,7 @@ resource "azurerm_kubernetes_cluster" "main" {
     node_count          = var.node_count
     vm_size             = "Standard_EC2as_v5"  # Use the smaller VM size directly
     vnet_subnet_id      = var.vnet_subnet_id
-    enable_auto_scaling = false                # Disabled for quota reasons
+    enable_auto_scaling = true                # Disabled for quota reasons
     min_count           = 1
     max_count           = 3
     type                = "VirtualMachineScaleSets"

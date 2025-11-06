@@ -33,7 +33,16 @@ variable "node_count" {
   type        = number
   default     = 1
 }
-
+variable "vm_size" {
+  description = "VM size for nodes"
+  type        = string
+  default     = "Standard_EC2as_v5"
+}
+variable "enable_auto_scaling" {
+  description = "Enable auto-scaling"
+  type        = bool
+  default     = false
+}
 variable "acr_id" {
   description = "ACR ID for role assignment"
   type        = string
@@ -44,4 +53,15 @@ variable "tags" {
   description = "Tags for resources"
   type        = map(string)
   default     = {}
+}
+variable "min_count" {
+  description = "Minimum node count for auto-scaling"
+  type        = number
+  default     = null  # Set to null when auto-scaling is disabled
+}
+
+variable "max_count" {
+  description = "Maximum node count for auto-scaling"
+  type        = number
+  default     = null  # Set to null when auto-scaling is disabled
 }
