@@ -259,31 +259,17 @@ jobs:
         with:
           version: 3.13.0
 
-      - name: Clean Up Existing Namespace
+      - name: Clean Up Existing Namespace (if needed)
         run: |
           echo "🔍 Checking for existing namespace: ${{ env.NAMESPACE }}"
           if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
-            echo "⚠️  Namespace exists. Deleting it..."
+            echo "⚠️  Namespace exists. Deleting it to allow Helm to manage..."
             kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s
             echo "✅ Namespace deleted successfully"
             sleep 10
           else
-            echo "✅ No existing namespace found"
+            echo "✅ No existing namespace found - Helm will create it"
           fi
-
-      - name: Create Namespace
-        run: |
-          echo "📦 Creating namespace: ${{ env.NAMESPACE }}"
-          kubectl create namespace ${{ env.NAMESPACE }}
-          
-          # Add labels to the namespace
-          kubectl label namespace ${{ env.NAMESPACE }} \
-            name=healthcare-dev \
-            environment=dev \
-            app=healthcare-microservices --overwrite
-          
-          echo "✅ Namespace created and labeled successfully"
-          kubectl get namespace ${{ env.NAMESPACE }} --show-labels
 
       - name: Build Helm dependencies
         run: |
@@ -299,6 +285,7 @@ jobs:
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --set global.namespace=${{ env.NAMESPACE }} \
