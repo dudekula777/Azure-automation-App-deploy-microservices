@@ -98,9 +98,9 @@ jobs:
     - name: Get Infrastructure Outputs
       id: outputs
       if: |
-        steps.apply-phase1.outcome == 'success' &&
-        steps.apply-phase2.outcome == 'success' && 
-        steps.apply-phase3.outcome == 'success' &&
+        (steps.apply-phase1.outcome == 'success' || steps.apply-phase1.outcome == 'skipped') &&
+        (steps.apply-phase2.outcome == 'success' || steps.apply-phase2.outcome == 'skipped') && 
+        (steps.apply-phase3.outcome == 'success' || steps.apply-phase3.outcome == 'skipped') &&
         (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
       run: |
         cd ${{ env.TF_WORKING_DIR }}
@@ -473,7 +473,7 @@ EOF
           ./kubernetes/helm \
           --namespace ${{ env.NAMESPACE }} \
           --create-namespace \
-          --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/ \
+          --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
           --set global.environment=${{ env.ENVIRONMENT }} \
           --set global.namespace=${{ env.NAMESPACE }} \
           --set patientService.image.tag=latest \
