@@ -118,7 +118,7 @@ jobs:
             --tenant ${{ secrets.ARM_TENANT_ID }}
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-      - name: AKS credentials
+      - name: Get AKS Credentials
         run: |
           az aks get-credentials \
             --resource-group ${{ needs.terraform-infrastructure.outputs.aks-resource-group }} \
@@ -127,9 +127,18 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Patch Namespace for Helm Ownership (safe to re-run)
-      - name: Patch Namespace for Helm Ownership
+      # ✅ Ensure Namespace Exists BEFORE Helm
+      - name: Ensure Namespace Exists
         run: |
+          echo "🔍 Checking if namespace '${{ env.NAMESPACE }}' exists..."
+          if ! kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1; then
+            echo "🚀 Namespace '${{ env.NAMESPACE }}' not found — creating now..."
+            kubectl create namespace ${{ env.NAMESPACE }}
+          else
+            echo "✅ Namespace '${{ env.NAMESPACE }}' already exists."
+          fi
+
+          # Add Helm ownership labels (prevents validation errors)
           kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite || true
           kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-name=healthcare-microservices --overwrite || true
           kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-namespace=${{ env.NAMESPACE }} --overwrite || true
@@ -140,8 +149,8 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ Stable Deployment (no atomic rollback, faster timeout)
-      - name: Helm Upgrade/Install
+      # ✅ Safe Helm Deploy (no atomic rollback, faster rollout check)
+      - name: Deploy Healthcare Microservices with Helm
         run: |
           echo "🚀 Deploying healthcare microservices..."
           helm upgrade --install healthcare-microservices \
@@ -154,8 +163,8 @@ jobs:
             --set patientService.image.repository="patient-service" \
             --set appointmentService.image.repository="appointment-service" \
             --wait --timeout 300s
-          echo "✅ Helm release applied. Checking rollout status..."
 
+          echo "✅ Helm release applied. Checking rollout status..."
           echo "⏳ Waiting for Patient Service rollout..."
           kubectl rollout status deployment/patient-service -n ${{ env.NAMESPACE }} --timeout=300s || true
 
@@ -163,8 +172,7 @@ jobs:
           kubectl rollout status deployment/appointment-service -n ${{ env.NAMESPACE }} --timeout=300s || true
 
           echo "✅ Rollout checks finished."
-
-          echo "🧠 Gathering debug info (if something failed)..."
+          echo "🧠 Gathering debug info..."
           kubectl get pods -n ${{ env.NAMESPACE }}
           kubectl describe pods -n ${{ env.NAMESPACE }} | tail -n 40
 
@@ -207,7 +215,6 @@ jobs:
           echo "| Docker Build & Push | ${{ needs.docker-build-push.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| AKS Deployment | ${{ needs.deploy-to-aks.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
           echo "### 🌐 Deployed Endpoints" >> $GITHUB_STEP_SUMMARY
           echo "- LoadBalancer IP: ${{ needs.deploy-to-aks.outputs.LOADBALANCER_IP }}" >> $GITHUB_STEP_SUMMARY
           echo "- Ingress Host: ${{ needs.deploy-to-aks.outputs.INGRESS_HOST }}" >> $GITHUB_STEP_SUMMARY
