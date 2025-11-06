@@ -61,7 +61,7 @@ variable "kubernetes_version" {
 variable "vm_size" {
   description = "VM size for AKS nodes"
   type        = string
-  default     = "Standard_EC4as_v5"
+  default     = "Standard_EC2as_v5"
 }
 
 variable "availability_zones" {

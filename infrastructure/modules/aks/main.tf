@@ -13,6 +13,8 @@ resource "azurerm_kubernetes_cluster" "main" {
     enable_auto_scaling = var.enable_auto_scaling
     min_count           = var.min_count
     max_count           = var.max_count
+    vm_size              = "Standard_EC2as_v5"  # 2 vCPUs
+    enable_auto_scaling  = false               # Disable auto-scaling for now   
   }
 
   identity {
@@ -22,7 +24,6 @@ resource "azurerm_kubernetes_cluster" "main" {
   network_profile {
   dns_service_ip     = "10.1.0.10"
   service_cidr       = "10.1.0.0/16"
-  docker_bridge_cidr = "172.17.0.1/16"
   network_plugin     = "azure"
   load_balancer_sku  = "standard"
   outbound_type      = "loadBalancer"
