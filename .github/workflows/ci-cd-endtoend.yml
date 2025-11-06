@@ -271,6 +271,20 @@ jobs:
             echo "✅ No existing namespace found"
           fi
 
+      - name: Create Namespace
+        run: |
+          echo "📦 Creating namespace: ${{ env.NAMESPACE }}"
+          kubectl create namespace ${{ env.NAMESPACE }}
+          
+          # Add labels to the namespace
+          kubectl label namespace ${{ env.NAMESPACE }} \
+            name=healthcare-dev \
+            environment=dev \
+            app=healthcare-microservices --overwrite
+          
+          echo "✅ Namespace created and labeled successfully"
+          kubectl get namespace ${{ env.NAMESPACE }} --show-labels
+
       - name: Build Helm dependencies
         run: |
           echo "Building Helm dependencies..."
@@ -285,22 +299,27 @@ jobs:
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
-            --create-namespace \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
+            --set global.namespace=${{ env.NAMESPACE }} \
+            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
+            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
+            --atomic \
             --wait --timeout 600s
           echo "✅ Helm deployment completed successfully"
 
       - name: Verify Deployment
         run: |
           echo "=== Verifying Deployment ==="
-          echo "1. Checking deployments..."
+          echo "1. Checking namespaces..."
+          kubectl get namespaces
+          echo "2. Checking deployments..."
           kubectl get deployments -n ${{ env.NAMESPACE }}
-          echo "2. Checking pods..."
+          echo "3. Checking pods..."
           kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-          echo "3. Checking services..."
+          echo "4. Checking services..."
           kubectl get services -n ${{ env.NAMESPACE }}
-          echo "4. Checking ingress..."
+          echo "5. Checking ingress..."
           kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found yet"
           echo "✅ All Kubernetes resources verified"
 
