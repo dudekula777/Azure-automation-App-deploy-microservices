@@ -28,9 +28,5 @@ module "aks" {
   
   tags = local.tags
 
-  depends_on = [
-    module.resource_group,
-    module.network,
-    module.acr
-  ]
+
 }
