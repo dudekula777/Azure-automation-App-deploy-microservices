@@ -181,7 +181,6 @@ jobs:
         run: |
           echo "${{ steps.acr-creds.outputs.password }}" | docker login ${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             -u ${{ steps.acr-creds.outputs.username }} --password-stdin
-
       - name: Build and Push Patient Service
         run: |
             echo "Building Patient Service Docker image..."
@@ -191,17 +190,17 @@ jobs:
             cat Dockerfile || echo "Dockerfile missing!"
             docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
             docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
-
+        
       - name: Build and Push Appointment Service
         run: |
-          mecho "Building Appointment Service Docker image..."
+            echo "Building Appointment Service Docker image..."
             cd $GITHUB_WORKSPACE/apps/appointment-service
             echo "Current directory: $(pwd)"
             ls -la
             cat Dockerfile || echo "Dockerfile missing!"
             docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
             docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
-
+            
 
       - name: Run Trivy vulnerability scanner
         run: |
