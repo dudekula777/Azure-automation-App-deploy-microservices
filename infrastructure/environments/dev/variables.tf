@@ -7,13 +7,13 @@ variable "environment" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "East US"
+  default     = "eastus2"
 }
 
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.27"
+  default     = "1.33.3"
 }
 
 variable "default_node_count" {
