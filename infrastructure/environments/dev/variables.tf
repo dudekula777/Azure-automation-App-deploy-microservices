@@ -7,7 +7,7 @@ variable "environment" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "eastus2"
+  default     = "eastus"
 }
 
 variable "kubernetes_version" {
