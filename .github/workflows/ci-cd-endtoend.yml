@@ -184,11 +184,13 @@ jobs:
 
       - name: Build and Push Patient Service
         run: |
-          mkdir -p /tmp/docker-build/patient-service
-          cp -r $GITHUB_WORKSPACE/apps/patient-service/* /tmp/docker-build/patient-service/
-          cd /tmp/docker-build/patient-service
-          docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
-          docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
+            echo "Building Patient Service Docker image..."
+            cd $GITHUB_WORKSPACE/apps/patient-service
+            echo "Current directory: $(pwd)"
+            ls -la
+            cat Dockerfile || echo "Dockerfile missing!"
+            docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
+            docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
 
       - name: Build and Push Appointment Service
         run: |
