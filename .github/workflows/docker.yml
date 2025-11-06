@@ -17,21 +17,26 @@ jobs:
     environment: dev
     
     permissions:
-      id-token: write  # ← REQUIRED for OIDC authentication
       security-events: write
       actions: read
       contents: read
+      # REMOVE id-token: write since we're not using OIDC
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Login to Azure CLI
-      uses: azure/login@v1
-      with:
-        client-id: ${{ secrets.ARM_CLIENT_ID }}
-        tenant-id: ${{ secrets.ARM_TENANT_ID }}
-        subscription-id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+    - name: Login to Azure CLI with Service Principal
+      run: |
+        az login --service-principal \
+          -u ${{ secrets.ARM_CLIENT_ID }} \
+          -p ${{ secrets.ARM_CLIENT_SECRET }} \
+          --tenant ${{ secrets.ARM_TENANT_ID }}
+        
+        az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        
+        # Verify login
+        az account show --query "{subscriptionName:name, user:user.name}"
 
     - name: Get ACR Credentials
       id: acr-creds
@@ -39,6 +44,11 @@ jobs:
         # Update with your actual ACR name and resource group
         ACR_NAME="acrdev7459df5c"
         RESOURCE_GROUP="rg-dev-ab993d7f"
+        
+        echo "Getting ACR credentials for: $ACR_NAME in resource group: $RESOURCE_GROUP"
+        
+        # Check if ACR exists
+        az acr show --name $ACR_NAME --resource-group $RESOURCE_GROUP
         
         # Enable admin user
         az acr update -n $ACR_NAME --resource-group $RESOURCE_GROUP --admin-enabled true
