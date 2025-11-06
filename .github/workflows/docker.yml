@@ -20,38 +20,18 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Fetch all history and tags
 
-    - name: Debug Repository Structure
+    - name: Debug File Structure
       run: |
         echo "=== Current Directory ==="
         pwd
-        ls -la
-        
-        echo "=== Apps Directory ==="
-        ls -la apps/
-        
-        echo "=== Patient Service Contents ==="
-        ls -la apps/patient-service/ || echo "Patient service directory not found"
-        
-        echo "=== Appointment Service Contents ==="
-        ls -la apps/appointment-service/ || echo "Appointment service directory not found"
-        
-        echo "=== Check Dockerfile Existence ==="
-        find . -name "Dockerfile" -type f | head -20
-        
-        echo "=== Check if files actually exist ==="
-        [ -f "apps/patient-service/Dockerfile" ] && echo "Patient Dockerfile EXISTS" || echo "Patient Dockerfile MISSING"
-        [ -f "apps/appointment-service/Dockerfile" ] && echo "Appointment Dockerfile EXISTS" || echo "Appointment Dockerfile MISSING"
-
-    - name: Show Dockerfile Contents
-      run: |
-        echo "=== Patient Service Dockerfile ==="
-        cat apps/patient-service/Dockerfile || echo "Cannot read patient Dockerfile"
-        
-        echo "=== Appointment Service Dockerfile ==="
-        cat apps/appointment-service/Dockerfile || echo "Cannot read appointment Dockerfile"
+        echo "=== Patient Service Files ==="
+        ls -la apps/patient-service/
+        echo "=== Appointment Service Files ==="
+        ls -la apps/appointment-service/
+        echo "=== File Contents ==="
+        cat apps/patient-service/Dockerfile
+        cat apps/appointment-service/Dockerfile
 
     - name: Login to Azure CLI with Service Principal
       run: |
@@ -85,48 +65,64 @@ jobs:
         
         echo "ACR Registry: $ACR_LOGIN_SERVER"
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
     - name: Log in to Azure Container Registry
       run: |
         echo "${{ steps.acr-creds.outputs.password }}" | docker login ${{ steps.acr-creds.outputs.login-server }} -u ${{ steps.acr-creds.outputs.username }} --password-stdin
 
-    - name: Test Build with Absolute Paths
+    - name: Build and Push Patient Service (Simple Docker)
       run: |
-        echo "=== Testing build with absolute paths ==="
-        pwd
-        ls -la apps/patient-service/Dockerfile
+        echo "Building Patient Service with regular Docker..."
+        cd apps/patient-service
         
-        # Try building with full path
-        docker buildx build \
-          --push \
-          --tag ${{ steps.acr-creds.outputs.login-server }}/patient-service:test \
-          --file $(pwd)/apps/patient-service/Dockerfile \
-          $(pwd)/apps/patient-service/
+        # Build with regular docker command
+        docker build -t ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest .
+        
+        # Push the image
+        docker push ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest
+        
+        echo "✅ Patient Service image pushed successfully"
 
-    - name: Build and Push Services (Alternative Method)
+    - name: Build and Push Appointment Service (Simple Docker)
       run: |
-        echo "=== Building services ==="
+        echo "Building Appointment Service with regular Docker..."
+        cd apps/appointment-service
         
-        # Method 1: Using full paths
-        echo "Building Patient Service..."
-        docker buildx build \
-          --push \
-          --tag ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest \
-          --file ./apps/patient-service/Dockerfile \
-          ./apps/patient-service/ || echo "Patient build failed"
+        # Build with regular docker command
+        docker build -t ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest .
         
-        echo "Building Appointment Service..."
-        docker buildx build \
-          --push \
-          --tag ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest \
-          --file ./apps/appointment-service/Dockerfile \
-          ./apps/appointment-service/ || echo "Appointment build failed"
+        # Push the image
+        docker push ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest
+        
+        echo "✅ Appointment Service image pushed successfully"
+
+    - name: Verify Images in ACR
+      run: |
+        echo "Verifying images were pushed to ACR..."
+        az acr repository list --name acrdev7459df5c --output table
+
+    - name: Run Trivy vulnerability scanner
+      run: |
+        echo "Running security scan on pushed images..."
+        # Pull images first for scanning
+        docker pull ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest
+        docker pull ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest
+        
+        trivy image \
+          --format sarif \
+          --output trivy-results.sarif \
+          ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest \
+          ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
 
     - name: Create Build Summary
       run: |
-        echo "Docker build attempt completed at $(date)" > docker-build-summary.txt
+        echo "Docker images built and pushed at $(date)" > docker-build-summary.txt
+        echo "Patient Service: ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest" >> docker-build-summary.txt
+        echo "Appointment Service: ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest" >> docker-build-summary.txt
         echo "ACR Registry: ${{ steps.acr-creds.outputs.login-server }}" >> docker-build-summary.txt
 
     - name: Upload Build Summary
@@ -135,3 +131,10 @@ jobs:
         name: docker-build-summary
         path: docker-build-summary.txt
         retention-days: 30
+
+    - name: Docker Build Complete
+      run: |
+        echo "✅ Docker build and push completed successfully!"
+        echo "Images available in ACR:"
+        echo "- ${{ steps.acr-creds.outputs.login-server }}/patient-service:latest"
+        echo "- ${{ steps.acr-creds.outputs.login-server }}/appointment-service:latest"
