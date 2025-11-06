@@ -1,6 +1,6 @@
 global:
   environment: dev
-  imageRegistry: ""
+  imageRegistry: "acrdev7459df5c.azurecr.io"
   namespace: healthcare-dev
 
 ingress-nginx:
@@ -21,7 +21,7 @@ ingress-nginx:
 patientService:
   replicaCount: 2
   image:
-    repository: patient-service
+    repository: acrdev7459df5c.azurecr.io/patient-service
     tag: latest
     pullPolicy: IfNotPresent
   service:
@@ -53,7 +53,7 @@ patientService:
 appointmentService:
   replicaCount: 2
   image:
-    repository: appointment-service
+    repository: acrdev7459df5c.azurecr.io/appointment-service
     tag: latest
     pullPolicy: IfNotPresent
   service:

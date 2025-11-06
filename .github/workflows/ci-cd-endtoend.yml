@@ -285,6 +285,7 @@ jobs:
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
+            --create-namespace \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --wait --timeout 600s
