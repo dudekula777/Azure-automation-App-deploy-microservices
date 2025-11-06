@@ -61,7 +61,7 @@ module "aks" {
   
   # Node configuration
   node_count          = 1
-  vm_size             = "Standard_DS2_v3"
+  vm_size             = "Standard_B2ms"
   
   # Network configuration
   service_cidr        = "10.0.0.0/16"
