@@ -292,7 +292,12 @@ jobs:
       - name: Create namespace
         run: |
           kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-
+# ✅ Add this step
+      - name: Build Helm dependencies
+        run: |
+          echo "Building Helm dependencies..."
+          helm dependency build ./kubernetes/helm
+          
       - name: Deploy Healthcare Microservices
         run: |
           helm upgrade --install healthcare-microservices \
