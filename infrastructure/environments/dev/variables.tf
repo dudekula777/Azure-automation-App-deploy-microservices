@@ -44,5 +44,5 @@ variable "client_secret" {
   description = "Azure client secret"
   type        = string
   sensitive   = true
-  default     = ""  # if using env vars
+  default     = ""  # Optional if using env vars
 }
