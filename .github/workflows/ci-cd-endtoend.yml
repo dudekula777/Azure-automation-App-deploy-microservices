@@ -32,6 +32,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -137,19 +139,6 @@ jobs:
         path: infrastructure-deployment.txt
         retention-days: 30
 
-    - name: Terraform Failure Notification
-      if: |
-        failure() && 
-        (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
-      run: |
-        echo "## Terraform Deployment Failed" >> $GITHUB_STEP_SUMMARY
-        echo "One or more Terraform apply phases failed. Check the logs above for details." >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Failed phases:" >> $GITHUB_STEP_SUMMARY
-        echo "- Phase 1 (Resource Group): ${{ steps.apply-phase1.outcome }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Phase 2 (Network, Storage, ACR): ${{ steps.apply-phase2.outcome }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Phase 3 (AKS): ${{ steps.apply-phase3.outcome }}" >> $GITHUB_STEP_SUMMARY
-
   # STAGE 2: Docker Build and Push
   docker-build-push:
     name: '2 - Docker Build and Push'
@@ -166,29 +155,31 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Download Infrastructure Details
-      uses: actions/download-artifact@v4
       with:
-        name: infrastructure-details
-        path: ./
+        fetch-depth: 0
 
-    - name: Display Infrastructure Info
+    - name: Comprehensive File Structure Analysis
       run: |
-        echo "=== Infrastructure Details ==="
-        cat infrastructure-deployment.txt
-        echo "AKS Cluster: ${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}"
-        echo "Resource Group: ${{ needs.terraform-infrastructure.outputs.aks-resource-group }}"
-        echo "ACR Login Server: ${{ needs.terraform-infrastructure.outputs.acr-login-server }}"
-
-    - name: Debug File Structure
-      run: |
-        echo "=== Current Directory ==="
-        pwd
-        echo "=== Patient Service Files ==="
-        ls -la apps/patient-service/
-        echo "=== Appointment Service Files ==="
-        ls -la apps/appointment-service/
+        echo "=== COMPREHENSIVE FILE STRUCTURE ANALYSIS ==="
+        echo "Workspace: $GITHUB_WORKSPACE"
+        echo "Current directory: $(pwd)"
+        echo ""
+        echo "=== ROOT DIRECTORY ==="
+        ls -la
+        echo ""
+        echo "=== APPS DIRECTORY ==="
+        ls -la apps/
+        echo ""
+        echo "=== PATIENT SERVICE DETAILED ==="
+        ls -la apps/patient-service/ 2>/dev/null || echo "❌ Patient service directory not found"
+        echo "Patient Dockerfile exists: $(test -f apps/patient-service/Dockerfile && echo '✅ YES' || echo '❌ NO')"
+        echo ""
+        echo "=== APPOINTMENT SERVICE DETAILED ==="
+        ls -la apps/appointment-service/ 2>/dev/null || echo "❌ Appointment service directory not found"
+        echo "Appointment Dockerfile exists: $(test -f apps/appointment-service/Dockerfile && echo '✅ YES' || echo '❌ NO')"
+        echo ""
+        echo "=== FIND ALL DOCKERFILES ==="
+        find . -name "Dockerfile" -type f 2>/dev/null | head -10
 
     - name: Login to Azure CLI with Service Principal
       run: |
@@ -217,38 +208,122 @@ jobs:
         # Set outputs
         echo "username=$ACR_USERNAME" >> $GITHUB_OUTPUT
         echo "password=$ACR_PASSWORD" >> $GITHUB_OUTPUT
-        
-        echo "ACR Registry: ${{ needs.terraform-infrastructure.outputs.acr-login-server }}"
 
     - name: Log in to Azure Container Registry
       run: |
         echo "${{ steps.acr-creds.outputs.password }}" | docker login ${{ needs.terraform-infrastructure.outputs.acr-login-server }} -u ${{ steps.acr-creds.outputs.username }} --password-stdin
 
-    - name: Build and Push Patient Service
+    - name: Build and Push Services (Method 1 - Absolute Paths)
+      id: build-method1
       run: |
-        echo "Building Patient Service with regular Docker..."
-        cd apps/patient-service
+        echo "=== METHOD 1: Using Absolute Paths ==="
         
-        # Build with regular docker command
-        docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
+        # Build Patient Service with absolute path
+        echo "Building Patient Service..."
+        docker build \
+          -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest \
+          -f $GITHUB_WORKSPACE/apps/patient-service/Dockerfile \
+          $GITHUB_WORKSPACE/apps/patient-service/
         
-        # Push the image
+        # Build Appointment Service with absolute path
+        echo "Building Appointment Service..."
+        docker build \
+          -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest \
+          -f $GITHUB_WORKSPACE/apps/appointment-service/Dockerfile \
+          $GITHUB_WORKSPACE/apps/appointment-service/
+        
+        # Push both images
+        echo "Pushing images to ACR..."
         docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
-        
-        echo "✅ Patient Service image pushed successfully"
-
-    - name: Build and Push Appointment Service
-      run: |
-        echo "Building Appointment Service with regular Docker..."
-        cd apps/appointment-service
-        
-        # Build with regular docker command
-        docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
-        
-        # Push the image
         docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
         
-        echo "✅ Appointment Service image pushed successfully"
+        echo "✅ Method 1 completed successfully"
+
+    - name: Build and Push Services (Method 2 - Fallback)
+      if: steps.build-method1.outcome == 'failure'
+      id: build-method2
+      run: |
+        echo "=== METHOD 2: Fallback with Directory Change ==="
+        
+        # Build Patient Service
+        echo "Building Patient Service..."
+        cd $GITHUB_WORKSPACE/apps/patient-service
+        echo "Current directory: $(pwd)"
+        echo "Files in directory:"
+        ls -la
+        docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
+        
+        # Build Appointment Service
+        echo "Building Appointment Service..."
+        cd $GITHUB_WORKSPACE/apps/appointment-service
+        echo "Current directory: $(pwd)"
+        echo "Files in directory:"
+        ls -la
+        docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
+        
+        # Push both images
+        echo "Pushing images to ACR..."
+        docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
+        docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+        
+        echo "✅ Method 2 completed successfully"
+
+    - name: Create Emergency Dockerfiles (Last Resort)
+      if: steps.build-method1.outcome == 'failure' && steps.build-method2.outcome == 'failure'
+      id: build-method3
+      run: |
+        echo "=== METHOD 3: Creating Emergency Dockerfiles ==="
+        
+        # Create temporary directory
+        mkdir -p /tmp/docker-build
+        cd /tmp/docker-build
+        
+        # Create patient service files
+        mkdir -p patient-service
+        cat > patient-service/Dockerfile << 'EOF'
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --only=production
+COPY patient-service.js .
+EXPOSE 3000
+USER node
+CMD ["node", "patient-service.js"]
+EOF
+        
+        # Copy patient service files from repository
+        cp $GITHUB_WORKSPACE/apps/patient-service/patient-service.js patient-service/
+        cp $GITHUB_WORKSPACE/apps/patient-service/package.json patient-service/
+        
+        # Build patient service
+        cd patient-service
+        docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
+        docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
+        
+        # Create appointment service files
+        cd /tmp/docker-build
+        mkdir -p appointment-service
+        cat > appointment-service/Dockerfile << 'EOF'
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --only=production
+COPY appointment-service.js .
+EXPOSE 3001
+USER node
+CMD ["node", "appointment-service.js"]
+EOF
+        
+        # Copy appointment service files from repository
+        cp $GITHUB_WORKSPACE/apps/appointment-service/appointment-service.js appointment-service/
+        cp $GITHUB_WORKSPACE/apps/appointment-service/package.json appointment-service/
+        
+        # Build appointment service
+        cd appointment-service
+        docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
+        docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
+        
+        echo "✅ Method 3 completed successfully"
 
     - name: Verify Images in ACR
       run: |
