@@ -138,7 +138,7 @@ jobs:
             --set global.imageRegistry="${{ needs.terraform-infrastructure.outputs.acr-login-server }}/" \
             --set patientService.image.repository="/patient-service" \
             --set appointmentService.image.repository="/appointment-service" \
-            --atomic --wait --timeout 1200s
+            --atomic --wait --timeout 300s
 
       - name: Verify Deployment
         id: verify
