@@ -200,37 +200,6 @@ jobs:
             cat Dockerfile || echo "Dockerfile missing!"
             docker build -f Dockerfile -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
             docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
-            
-    #   - name: Install Trivy
-    #     run: |
-    #         echo "Installing Trivy vulnerability scanner..."
-    #         sudo apt-get update -y
-    #         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-    #         wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-    #         echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
-    #         sudo apt-get update -y
-    #         sudo apt-get install -y trivy
-
-    #   - name: Run Trivy vulnerability scanner
-    #     run: |
-    #       docker pull ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
-    #       docker pull ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
-    #       trivy image --format sarif --output trivy-results.sarif \
-    #         ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest \
-    #         ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
-
-    #   - name: Run Trivy Image Scan
-    #     run: |
-    #         docker pull acrdev7459df5c.azurecr.io/patient-service:latest
-    #         docker pull acrdev7459df5c.azurecr.io/appointment-service:latest
-    #         trivy image --format sarif --output trivy-results.sarif \
-    #         acrdev7459df5c.azurecr.io/patient-service:latest \
-    #         acrdev7459df5c.azurecr.io/appointment-service:latest
-
-    #   - name: Upload Trivy scan results to GitHub Security tab
-    #     uses: github/codeql-action/upload-sarif@v3
-    #     with:
-    #       sarif_file: trivy-results.sarif
 
       - name: Create Build Summary
         run: |
@@ -289,10 +258,27 @@ jobs:
         with:
           version: 3.13.0
 
-      - name: Create namespace
+      # ✅ SOLUTION 1: Clean Up and Recreate Namespace
+      - name: Clean Up Existing Namespace
+        id: cleanup-namespace
         run: |
-          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-# ✅ Add this step
+          echo "🔍 Checking for existing namespace: ${{ env.NAMESPACE }}"
+          if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "⚠️  Namespace exists but not managed by Helm. Cleaning up..."
+            kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s
+            echo "✅ Namespace deleted successfully"
+            echo "namespace_cleaned=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ No existing namespace found"
+            echo "namespace_cleaned=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait After Namespace Cleanup
+        if: steps.cleanup-namespace.outputs.namespace_cleaned == 'true'
+        run: |
+          echo "⏳ Waiting for namespace cleanup to complete..."
+          sleep 15
+
       - name: Build Helm dependencies
         run: |
           echo "Building Helm dependencies..."
@@ -303,13 +289,53 @@ jobs:
 
       - name: Deploy Healthcare Microservices
         run: |
-            helm upgrade --install healthcare-microservices \
+          echo "🚀 Deploying healthcare microservices with Helm..."
+          helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
             --create-namespace \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --wait --timeout 600s
+          echo "✅ Helm deployment completed successfully"
+
+      - name: Verify Deployment
+        run: |
+          echo "=== Verifying Deployment ==="
+          echo "1. Checking deployments..."
+          kubectl get deployments -n ${{ env.NAMESPACE }}
+          echo "2. Checking pods..."
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
+          echo "3. Checking services..."
+          kubectl get services -n ${{ env.NAMESPACE }}
+          echo "4. Checking ingress..."
+          kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found yet"
+          echo "✅ All Kubernetes resources verified"
+
+      - name: Wait for Pods to be Ready
+        run: |
+          echo "⏳ Waiting for all pods to be ready..."
+          kubectl wait --for=condition=ready pod -l app=patient-service -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=appointment-service -n ${{ env.NAMESPACE }} --timeout=300s
+          echo "✅ All pods are ready"
+
+      - name: Create Deployment Summary
+        run: |
+          echo "=== Deployment Summary ===" > deployment-summary.txt
+          echo "Deployment Time: $(date)" >> deployment-summary.txt
+          echo "Cluster: ${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}" >> deployment-summary.txt
+          echo "Namespace: ${{ env.NAMESPACE }}" >> deployment-summary.txt
+          echo "Status: SUCCESS" >> deployment-summary.txt
+          echo "" >> deployment-summary.txt
+          echo "Deployed Services:" >> deployment-summary.txt
+          kubectl get deployments -n ${{ env.NAMESPACE }} >> deployment-summary.txt
+
+      - name: Upload Deployment Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-summary
+          path: deployment-summary.txt
+          retention-days: 30
 
   # ============================================================
   # STAGE 4: Pipeline Summary
@@ -337,6 +363,8 @@ jobs:
                 "${{ needs.docker-build-push.result }}" == "success" && \
                 "${{ needs.deploy-to-aks.result }}" == "success" ]]; then
             echo "🎉 **All stages completed successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo "Your healthcare microservices are now deployed and running in AKS." >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Pipeline failed in one or more stages**" >> $GITHUB_STEP_SUMMARY
+            echo "Check the failed stage logs for details." >> $GITHUB_STEP_SUMMARY
           fi
