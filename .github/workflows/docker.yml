@@ -17,6 +17,7 @@ jobs:
     environment: dev
     
     permissions:
+      id-token: write  # ← REQUIRED for OIDC authentication
       security-events: write
       actions: read
       contents: read
