@@ -1,80 +1,33 @@
-resource "random_id" "suffix" {
-  byte_length = 4
-}
-
-locals {
-  tags = {
-    Environment = var.environment
-    Project     = "YourProjectName"
-    Terraform   = "true"
-  }
-}
-
-module "resource_group" {
-  source = "../../modules/resource-group"
-
-  environment = var.environment
-  location    = var.location
-}
-
-module "storage" {
-  source = "../../modules/storage"
-
-  resource_group_name = module.resource_group.name
-  location            = var.location
-  environment         = var.environment
-
-  depends_on = [module.resource_group]
-}
-
-module "network" {
-  source = "../../modules/network"
-
-  resource_group_name = module.resource_group.name
-  location            = var.location
-  environment         = var.environment
-
-  depends_on = [module.resource_group]
-}
-
-module "acr" {
-  source = "../../modules/acr"
-
-  resource_group_name = module.resource_group.name
-  location            = var.location
-  environment         = var.environment
-
-  depends_on = [module.resource_group]
-}
-
 module "aks" {
   source = "../../modules/aks"
 
-  resource_group_name = module.resource_group.name
-  location            = var.location
-  cluster_name        = "aks-${var.environment}-${random_id.suffix.hex}"
-  dns_prefix          = "aks-${var.environment}"
-  vnet_subnet_id      = module.network.aks_subnet_id
-  environment         = var.environment
-  kubernetes_version  = "1.33.3"
-  acr_id              = module.acr.acr_id
-  
-  # Node configuration
-  node_count          = 1
-  vm_size             = "Standard_EC2as_v5"
+  # Basic configuration
+  cluster_name          = "aks-${var.environment}-${random_id.suffix.hex}"
+  resource_group_name   = module.resource_group.resource_group_name  # Fixed output name
+  location              = var.location
+  dns_prefix            = "aks-${var.environment}"
+  kubernetes_version    = "1.33.3"
   
   # Network configuration
-  service_cidr        = "10.0.0.0/16"
-  dns_service_ip      = "10.0.0.10"
+  vnet_subnet_id        = module.network.aks_subnet_id  # Make sure this output exists
   
-  # Auto-scaling
-  enable_auto_scaling = true
-  min_count          = 1
-  max_count          = 3
+  # ACR integration
+  acr_id                = module.acr.acr_id  # Make sure this output exists
+  
+  # Node configuration - use direct values instead of variables for now
+  # Remove these if your AKS module doesn't use them:
+  # node_count          = 1
+  # vm_size             = "Standard_EC2as_v5"
+  # enable_auto_scaling = true
+  # min_count          = 1
+  # max_count          = 3
+  
+  # Remove these as they're configured in the module's network_profile:
+  # service_cidr        = "10.1.0.0/16"  # Use non-overlapping range
+  # dns_service_ip      = "10.1.0.10"
   
   tags = local.tags
 
-  # Add explicit dependencies
   depends_on = [
     module.resource_group,
     module.network,

@@ -19,7 +19,7 @@ output "private_subnet_id" {
 }
 
 output "aks_subnet_id" {
-  description = "AKS subnet ID"
+  description = "The ID of the AKS subnet"
   value       = azurerm_subnet.aks.id
 }
 

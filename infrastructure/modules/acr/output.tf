@@ -1,6 +1,6 @@
 
 output "acr_id" {
-  description = "Azure Container Registry ID"
+  description = "The ID of the Azure Container Registry"
   value       = azurerm_container_registry.main.id
 }
 
