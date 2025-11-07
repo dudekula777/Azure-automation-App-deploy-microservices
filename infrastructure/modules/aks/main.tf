@@ -7,7 +7,7 @@ resource "azurerm_kubernetes_cluster" "main" {
 
   default_node_pool {
     name                = "default"
-    node_count          = var.node_count
+    #node_count          = var.node_count
     vm_size             = "Standard_EC2as_v5"  # Use the smaller VM size directly
     vnet_subnet_id      = var.vnet_subnet_id
     enable_auto_scaling = true                # Disabled for quota reasons
@@ -15,6 +15,7 @@ resource "azurerm_kubernetes_cluster" "main" {
     max_count           = 3
     type                = "VirtualMachineScaleSets"
     os_disk_type        = "Managed"
+    enable_auto_scaling = true
   }
 
   identity {
