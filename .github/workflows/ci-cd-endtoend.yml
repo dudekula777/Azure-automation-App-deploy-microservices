@@ -90,8 +90,8 @@ jobs:
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
 
 
-  #   # ============================================================
-  # 3️⃣ Deploy to AKS with Helm (Enhanced + ACR Access Fix)
+  # ============================================================
+  # 3️⃣ Deploy to AKS with Helm (Enhanced)
   # ============================================================
   deploy-to-aks:
     name: 3 - Deploy to AKS
@@ -106,7 +106,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -124,7 +123,7 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Ensure Namespace Exists and is Helm-managed
+      # ✅ Ensure Namespace Exists and Patch Ownership
       - name: Ensure Namespace Exists and Patch Ownership
         run: |
           kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create namespace ${{ env.NAMESPACE }}
@@ -132,7 +131,7 @@ jobs:
           kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-name=healthcare-microservices --overwrite || true
           kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-namespace=${{ env.NAMESPACE }} --overwrite || true
 
-      # ✅ Validate and Fix AKS ↔️ ACR Access
+      # ✅ Validate AKS ↔️ ACR access (Auto-fix if missing)
       - name: Validate AKS ↔️ ACR access
         run: |
           echo "🔍 Checking if AKS has pull access to ACR..."
@@ -143,18 +142,12 @@ jobs:
           AKS_ID=$(az aks show -n $AKS_NAME -g $AKS_RG --query identityProfile.kubeletidentity.objectId -o tsv)
           ACR_ID=$(az acr show -n $ACR_NAME --query id -o tsv)
 
-          if ! az role assignment list \
-              --assignee "$AKS_ID" \
-              --scope "$ACR_ID" \
-              --query "[?roleDefinitionName=='AcrPull']" -o tsv | grep -q "AcrPull"; then
-            echo "⚠️ AKS does not have AcrPull role — assigning now..."
+          if ! az role assignment list --assignee "$AKS_ID" --scope "$ACR_ID" --query "[?roleDefinitionName=='AcrPull']" -o tsv | grep -q "AcrPull"; then
+            echo "⚠️ AKS doesn't have AcrPull access — assigning now..."
             az role assignment create --assignee "$AKS_ID" --role AcrPull --scope "$ACR_ID"
           else
             echo "✅ AKS already has AcrPull access."
           fi
-
-          echo "🔄 Restarting pods to ensure image re-pull..."
-          kubectl delete pods --all -n ${{ env.NAMESPACE }} || true
 
       - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
@@ -190,7 +183,6 @@ jobs:
           set -e
 
           echo "✅ Helm release applied. Checking rollout status..."
-          echo "=== Checking pod states before rollout checks ==="
           kubectl get pods -n ${{ env.NAMESPACE }} -o wide
 
           for DEPLOY in patient-service appointment-service; do
@@ -226,6 +218,7 @@ jobs:
           echo "✅ Ingress Host: ${HOST}"
           echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
+
 
   # ============================================================
   # 4️⃣ Pipeline Summary
