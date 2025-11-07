@@ -180,7 +180,7 @@ jobs:
             --set patientService.image.tag=latest \
             --set appointmentService.image.tag=latest \
             --atomic \
-            --wait --timeout 600s
+            --wait --timeout 1200s
 
           echo "✅ Helm deployment completed successfully"
 
