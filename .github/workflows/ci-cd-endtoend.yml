@@ -23,10 +23,10 @@ jobs:
     name: 1 - Terraform Infrastructure
     runs-on: ubuntu-latest
     outputs:
-      aks-cluster-name: ${{ steps.outputs.cluster-name }}
-      aks-resource-group: ${{ steps.outputs.resource-group }}
-      acr-name: ${{ steps.outputs.acr-name }}
-      acr-login-server: ${{ steps.outputs.acr-login-server }}
+      aks-cluster-name: ${{ steps.outputs.outputs.cluster-name }}
+      aks-resource-group: ${{ steps.outputs.outputs.resource-group }}
+      acr-name: ${{ steps.outputs.outputs.acr-name }}
+      acr-login-server: ${{ steps.outputs.outputs.acr-login-server }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +55,13 @@ jobs:
           echo "acr-name=$(terraform output -raw acr_name)" >> $GITHUB_OUTPUT
           echo "acr-login-server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
 
+      - name: Debug Terraform Outputs
+        run: |
+          echo "Cluster Name: ${{ steps.outputs.outputs.cluster-name }}"
+          echo "Resource Group: ${{ steps.outputs.outputs.resource-group }}"
+          echo "ACR Name: ${{ steps.outputs.outputs.acr-name }}"
+          echo "ACR Login Server: ${{ steps.outputs.outputs.acr-login-server }}"
+
 
   # ============================================================
   # 2️⃣ Docker Build and Push
@@ -66,6 +73,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -74,8 +82,18 @@ jobs:
             --tenant ${{ secrets.ARM_TENANT_ID }}
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
+      - name: Validate ACR Name
+        run: |
+          if [ -z "${{ needs.terraform-infrastructure.outputs.acr-name }}" ]; then
+            echo "❌ ACR name is empty! Terraform output not found."
+            exit 1
+          else
+            echo "✅ ACR name: ${{ needs.terraform-infrastructure.outputs.acr-name }}"
+          fi
+
       - name: Login to ACR
-        run: az acr login --name ${{ needs.terraform-infrastructure.outputs.acr-name }}
+        run: |
+          az acr login --name ${{ needs.terraform-infrastructure.outputs.acr-name }}
 
       - name: Build & Push Patient Service
         run: |
