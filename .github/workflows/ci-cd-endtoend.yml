@@ -166,9 +166,9 @@ jobs:
             --create-namespace=false \
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
-            --set global.imageRegistry="${{ needs.terraform-infrastructure.outputs.acr-login-server }}" \
-            --set patientService.image.repository="patient-service" \
-            --set appointmentService.image.repository="appointment-service" \
+            --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
+            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
+            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
             --wait --timeout 900s
           status=$?
           if [ $status -ne 0 ]; then
