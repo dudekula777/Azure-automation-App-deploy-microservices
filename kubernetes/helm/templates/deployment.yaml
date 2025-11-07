@@ -25,7 +25,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ $svc.name }}
-          image: {{ include "microservice.image" (dict "Values" $.Values "image" $svc.image) }}
+          image: "{{ $svc.image.repository }}:{{ $svc.image.tag }}"
           imagePullPolicy: Always
           ports:
             - containerPort: {{ $svc.containerPort }}

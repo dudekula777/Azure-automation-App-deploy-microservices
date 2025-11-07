@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -148,15 +148,6 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Clean up old resources
-      - name: Clean Up Existing Resources
-        run: |
-          echo "🧹 Cleaning up existing resources..."
-          helm uninstall healthcare-microservices -n ${{ env.NAMESPACE }} 2>/dev/null || echo "No existing release to uninstall"
-          kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s 2>/dev/null || echo "Namespace not found"
-          sleep 10
-
-      # ✅ Ensure AKS has ACR access
       - name: Validate AKS ACR Access
         run: |
           echo "🔍 Ensuring AKS has ACR pull access..."
@@ -173,7 +164,7 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ Deploy Healthcare Microservices (fixed)
+      # ✅ Deploy Healthcare Microservices (Corrected Image Paths)
       - name: Deploy Healthcare Microservices
         run: |
           echo "🚀 Deploying healthcare microservices with Helm..."
@@ -184,9 +175,8 @@ jobs:
             --create-namespace \
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
-            --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
-            --set patientService.image.repository=patient-service \
-            --set appointmentService.image.repository=appointment-service \
+            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
+            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
             --set patientService.image.tag=latest \
             --set appointmentService.image.tag=latest \
             --atomic \
@@ -194,7 +184,6 @@ jobs:
 
           echo "✅ Helm deployment completed successfully"
 
-      # ✅ Wait for Pods
       - name: Wait for Pods to be Ready
         run: |
           echo "⏳ Waiting for pods to be ready..."
@@ -203,7 +192,6 @@ jobs:
           done
           echo "✅ All pods are ready"
 
-      # ✅ Post-deployment verification
       - name: Verify Deployment
         id: verify
         run: |
