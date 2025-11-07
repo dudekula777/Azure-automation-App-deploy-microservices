@@ -6,16 +6,16 @@ resource "azurerm_kubernetes_cluster" "main" {
   kubernetes_version  = var.kubernetes_version
 
   default_node_pool {
-    name                = "default"
-    #node_count          = var.node_count
-    vm_size             = "Standard_EC2as_v5"  # Use the smaller VM size directly
-    vnet_subnet_id      = var.vnet_subnet_id
-    enable_auto_scaling = true                # Disabled for quota reasons
-    min_count           = 1
-    max_count           = 3
-    type                = "VirtualMachineScaleSets"
-    os_disk_type        = "Managed"
+    name           = "default"
+    # node_count is not used when enable_auto_scaling = true
+    # node_count        = var.node_count
+    vm_size        = "Standard_EC2as_v5"  # Use the smaller VM size directly
+    vnet_subnet_id = var.vnet_subnet_id
     enable_auto_scaling = true
+    min_count      = 1
+    max_count      = 3
+    type           = "VirtualMachineScaleSets"
+    os_disk_type   = "Managed"
   }
 
   identity {
@@ -23,11 +23,11 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   network_profile {
-    dns_service_ip     = "10.1.0.10"
-    service_cidr       = "10.1.0.0/16"
-    network_plugin     = "azure"
-    load_balancer_sku  = "standard"
-    outbound_type      = "loadBalancer"
+    dns_service_ip    = "10.1.0.10"
+    service_cidr      = "10.1.0.0/16"
+    network_plugin    = "azure"
+    load_balancer_sku = "standard"
+    outbound_type     = "loadBalancer"
   }
 
   tags = var.tags
@@ -35,8 +35,6 @@ resource "azurerm_kubernetes_cluster" "main" {
 
 # Role assignment for ACR access
 resource "azurerm_role_assignment" "aks_acr" {
-
-
   principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
   role_definition_name             = "AcrPull"
   scope                            = var.acr_id
