@@ -19,6 +19,10 @@ spec:
       labels:
         app: {{ $svc.name }}
     spec:
+      {{- if $.Values.global.useImagePullSecrets }}
+      imagePullSecrets:
+        - name: {{ $.Values.global.acrSecretName }}
+      {{- end }}
       containers:
         - name: {{ $svc.name }}
           image: {{ include "microservice.image" (dict "Values" $.Values "image" $svc.image) }}
@@ -30,8 +34,4 @@ spec:
           envFrom:
             - configMapRef:
                 name: global-config
-      {{- if $.Values.global.useImagePullSecrets }}
-      imagePullSecrets:
-        - name: {{ $.Values.global.acrSecretName }}
-      {{- end }}
 {{- end }}

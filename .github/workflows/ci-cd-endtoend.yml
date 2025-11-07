@@ -23,13 +23,14 @@ jobs:
     name: 1 - Terraform Infrastructure
     runs-on: ubuntu-latest
     outputs:
-      aks-cluster-name: ${{ steps.outputs.outputs.cluster-name }}
-      aks-resource-group: ${{ steps.outputs.outputs.resource-group }}
-      acr-name: ${{ steps.outputs.outputs.acr-name }}
-      acr-login-server: ${{ steps.outputs.outputs.acr-login-server }}
+      aks-cluster-name: ${{ steps.outputs.cluster-name }}
+      aks-resource-group: ${{ steps.outputs.resource-group }}
+      acr-name: ${{ steps.outputs.acr-name }}
+      acr-login-server: ${{ steps.outputs.acr-login-server }}
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.0
@@ -57,11 +58,10 @@ jobs:
 
       - name: Debug Terraform Outputs
         run: |
-          echo "Cluster Name: ${{ steps.outputs.outputs.cluster-name }}"
-          echo "Resource Group: ${{ steps.outputs.outputs.resource-group }}"
-          echo "ACR Name: ${{ steps.outputs.outputs.acr-name }}"
-          echo "ACR Login Server: ${{ steps.outputs.outputs.acr-login-server }}"
-
+          echo "Cluster Name: ${{ steps.outputs.cluster-name }}"
+          echo "Resource Group: ${{ steps.outputs.resource-group }}"
+          echo "ACR Name: ${{ steps.outputs.acr-name }}"
+          echo "ACR Login Server: ${{ steps.outputs.acr-login-server }}"
 
   # ============================================================
   # 2️⃣ Docker Build and Push
@@ -106,7 +106,6 @@ jobs:
           cd apps/appointment-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
-
 
   # ============================================================
   # 3️⃣ Deploy to AKS with Helm
@@ -182,7 +181,6 @@ jobs:
           echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
 
-
   # ============================================================
   # 4️⃣ Pipeline Summary
   # ============================================================
@@ -210,4 +208,3 @@ jobs:
             echo "✅ Application successfully deployed to AKS." >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Deployment may have issues. Check rollout logs above." >> $GITHUB_STEP_SUMMARY
-          fi

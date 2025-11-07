@@ -1,14 +1,14 @@
 global:
   environment: dev
   namespace: healthcare-dev
-  imageRegistry: "acrdev7459df5c.azurecr.io/"
-  useImagePullSecrets: false
-  acrSecretName: acr-secret
+  imageRegistry: "acrdev7459df5c.azurecr.io"
+  useImagePullSecrets: false   # set true if ACR requires credentials
+  acrSecretName: acr-secret    # secret name for private ACR
 
 patientService:
   name: patient-service
   image:
-    repository: "/patient-service"
+    repository: "patient-service"
     tag: "latest"
   replicaCount: 2
   containerPort: 3000
@@ -28,7 +28,7 @@ patientService:
 appointmentService:
   name: appointment-service
   image:
-    repository: "/appointment-service"
+    repository: "appointment-service"
     tag: "latest"
   replicaCount: 2
   containerPort: 3001
