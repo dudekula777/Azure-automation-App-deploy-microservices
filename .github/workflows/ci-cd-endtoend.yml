@@ -108,7 +108,7 @@ jobs:
           az acr repository list --name ${{ needs.terraform-infrastructure.outputs.acr-name }} --output table
 
   # ============================================================
-  # 3️⃣ Deploy to AKS with Helm (Fixed Image Paths + ACR Access)
+  # 3️⃣ Deploy to AKS with Helm (Fixed Namespace Management)
   # ============================================================
   deploy-to-aks:
     name: 3 - Deploy to AKS
@@ -141,19 +141,41 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Clean up any stuck Helm operations and existing resources
+      # ✅ Clean up any stuck Helm operations
       - name: Clean Up Stuck Helm Operations
         run: |
           echo "🧹 Cleaning up any stuck Helm operations..."
           helm list -n ${{ env.NAMESPACE }} || true
+          # Rollback any pending operations
           helm rollback healthcare-microservices 0 -n ${{ env.NAMESPACE }} 2>/dev/null || true
+          # Uninstall existing release if any
           helm uninstall healthcare-microservices -n ${{ env.NAMESPACE }} 2>/dev/null || true
+
+      # ✅ Smart Namespace Management
+      - name: Manage Namespace for Helm
+        run: |
+          echo "🔍 Checking namespace status: ${{ env.NAMESPACE }}"
           
-          # Clean up any existing namespace
           if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
-            echo "Deleting existing namespace..."
-            kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s || true
-            sleep 10
+            echo "📦 Namespace exists. Checking Helm ownership..."
+            
+            # Check if namespace has Helm ownership labels
+            if kubectl get namespace ${{ env.NAMESPACE }} -o jsonpath='{.metadata.labels}' | grep -q "app.kubernetes.io/managed-by"; then
+              echo "✅ Namespace is already Helm-managed"
+            else
+              echo "⚠️ Namespace exists but is not Helm-managed. Adding Helm ownership metadata..."
+              
+              # Add Helm ownership labels and annotations
+              kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite
+              kubectl annotate namespace ${{ env.NAMESPACE }} \
+                meta.helm.sh/release-name=healthcare-microservices \
+                meta.helm.sh/release-namespace=${{ env.NAMESPACE }} \
+                --overwrite
+                
+              echo "✅ Added Helm ownership metadata to existing namespace"
+            fi
+          else
+            echo "📦 Namespace does not exist. It will be created by Helm with --create-namespace"
           fi
 
       # ✅ Ensure AKS has ACR access
@@ -183,28 +205,30 @@ jobs:
             echo "✅ AKS already has AcrPull access."
           fi
 
-      - name: Create Namespace
-        run: |
-          echo "📦 Creating namespace: ${{ env.NAMESPACE }}"
-          kubectl create namespace ${{ env.NAMESPACE }} || true
-          sleep 5
-
       - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
 
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ Fixed Helm Deployment with correct image paths
+      # ✅ Fixed Helm Deployment with proper namespace handling
       - name: Deploy Healthcare Microservices
         run: |
           echo "🚀 Deploying healthcare microservices with Helm..."
           
-          # Use full image repository paths including the registry
+          # Check if namespace exists to decide on --create-namespace
+          if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "📦 Using existing namespace: ${{ env.NAMESPACE }}"
+            CREATE_NAMESPACE_FLAG="--create-namespace=false"
+          else
+            echo "📦 Creating new namespace: ${{ env.NAMESPACE }}"
+            CREATE_NAMESPACE_FLAG="--create-namespace"
+          fi
+          
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
-            --create-namespace=false \
+            $CREATE_NAMESPACE_FLAG \
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
