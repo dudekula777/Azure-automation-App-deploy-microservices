@@ -123,12 +123,31 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
+      # ✅ Ensure Namespace Exists and Patch Ownership
       - name: Ensure Namespace Exists and Patch Ownership
         run: |
           kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create namespace ${{ env.NAMESPACE }}
           kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite || true
           kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-name=healthcare-microservices --overwrite || true
           kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-namespace=${{ env.NAMESPACE }} --overwrite || true
+
+      # ✅ Validate AKS ↔️ ACR access (Auto-fix if missing)
+      - name: Validate AKS ↔️ ACR access
+        run: |
+          echo "🔍 Checking if AKS has pull access to ACR..."
+          ACR_NAME=${{ needs.terraform-infrastructure.outputs.acr-name }}
+          AKS_RG=${{ needs.terraform-infrastructure.outputs.aks-resource-group }}
+          AKS_NAME=${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}
+
+          AKS_ID=$(az aks show -n $AKS_NAME -g $AKS_RG --query identityProfile.kubeletidentity.objectId -o tsv)
+          ACR_ID=$(az acr show -n $ACR_NAME --query id -o tsv)
+
+          if ! az role assignment list --assignee "$AKS_ID" --scope "$ACR_ID" --query "[?roleDefinitionName=='AcrPull']" -o tsv | grep -q "AcrPull"; then
+            echo "⚠️ AKS doesn't have AcrPull access — assigning now..."
+            az role assignment create --assignee "$AKS_ID" --role AcrPull --scope "$ACR_ID"
+          else
+            echo "✅ AKS already has AcrPull access."
+          fi
 
       - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
@@ -164,7 +183,6 @@ jobs:
           set -e
 
           echo "✅ Helm release applied. Checking rollout status..."
-          echo "=== Checking pod states before rollout checks ==="
           kubectl get pods -n ${{ env.NAMESPACE }} -o wide
 
           for DEPLOY in patient-service appointment-service; do
@@ -229,3 +247,4 @@ jobs:
             echo "✅ Application successfully deployed to AKS." >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Deployment may have issues. Check rollout logs above." >> $GITHUB_STEP_SUMMARY
+          fi
