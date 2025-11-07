@@ -23,10 +23,10 @@ jobs:
     name: 1 - Terraform Infrastructure
     runs-on: ubuntu-latest
     outputs:
-      aks-cluster-name: ${{ steps.outputs.outputs.cluster-name }}
-      aks-resource-group: ${{ steps.outputs.outputs.resource-group }}
-      acr-name: ${{ steps.outputs.outputs.acr-name }}
-      acr-login-server: ${{ steps.outputs.outputs.acr-login-server }}
+      aks-cluster-name: ${{ steps.outputs.cluster-name }}
+      aks-resource-group: ${{ steps.outputs.resource-group }}
+      acr-name: ${{ steps.outputs.acr-name }}
+      acr-login-server: ${{ steps.outputs.acr-login-server }}
 
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
 
 
   # ============================================================
-  # 3️⃣ Deploy to AKS with Helm (Enhanced)
+  # 3️⃣ Deploy to AKS with Helm
   # ============================================================
   deploy-to-aks:
     name: 3 - Deploy to AKS
@@ -99,13 +99,13 @@ jobs:
     needs:
       - terraform-infrastructure
       - docker-build-push
-
     outputs:
       LOADBALANCER_IP: ${{ steps.verify.outputs.LOADBALANCER_IP }}
       INGRESS_HOST: ${{ steps.verify.outputs.INGRESS_HOST }}
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -114,7 +114,7 @@ jobs:
             --tenant ${{ secrets.ARM_TENANT_ID }}
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-      - name: AKS credentials
+      - name: Get AKS credentials
         run: |
           az aks get-credentials \
             --resource-group ${{ needs.terraform-infrastructure.outputs.aks-resource-group }} \
@@ -123,18 +123,12 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Ensure Namespace Exists and Patch Ownership
-      - name: Ensure Namespace Exists and Patch Ownership
+      - name: Ensure Namespace Exists
         run: |
           kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create namespace ${{ env.NAMESPACE }}
-          kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite || true
-          kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-name=healthcare-microservices --overwrite || true
-          kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-namespace=${{ env.NAMESPACE }} --overwrite || true
 
-      # ✅ Validate AKS ↔️ ACR access (Auto-fix if missing)
       - name: Validate AKS ↔️ ACR access
         run: |
-          echo "🔍 Checking if AKS has pull access to ACR..."
           ACR_NAME=${{ needs.terraform-infrastructure.outputs.acr-name }}
           AKS_RG=${{ needs.terraform-infrastructure.outputs.aks-resource-group }}
           AKS_NAME=${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}
@@ -143,79 +137,30 @@ jobs:
           ACR_ID=$(az acr show -n $ACR_NAME --query id -o tsv)
 
           if ! az role assignment list --assignee "$AKS_ID" --scope "$ACR_ID" --query "[?roleDefinitionName=='AcrPull']" -o tsv | grep -q "AcrPull"; then
-            echo "⚠️ AKS doesn't have AcrPull access — assigning now..."
             az role assignment create --assignee "$AKS_ID" --role AcrPull --scope "$ACR_ID"
-          else
-            echo "✅ AKS already has AcrPull access."
           fi
 
-      - name: Helm Dependencies
-        run: helm dependency build ./kubernetes/helm
-
-      - name: Helm Lint
-        run: helm lint ./kubernetes/helm
-
-      # ✅ Improved Helm Deploy + Debug
-      - name: Deploy Healthcare Microservices with Helm (Enhanced)
+      - name: Helm Dependencies & Lint
         run: |
-          echo "🚀 Deploying healthcare microservices..."
-          set +e
-          helm upgrade --install healthcare-microservices \
-            ./kubernetes/helm \
+          helm dependency build ./kubernetes/helm
+          helm lint ./kubernetes/helm
+
+      - name: Deploy Healthcare Microservices
+        run: |
+          helm upgrade --install healthcare-microservices ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
             --create-namespace=false \
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
-            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
-            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
             --wait --timeout 900s
-          status=$?
-          if [ $status -ne 0 ]; then
-            echo "⚠️ Helm deployment timed out. Retrying in 60s..."
-            sleep 60
-            helm upgrade --install healthcare-microservices \
-              ./kubernetes/helm \
-              --namespace ${{ env.NAMESPACE }} \
-              --reuse-values \
-              --wait --timeout 900s
-          fi
-          set -e
 
-          echo "✅ Helm release applied. Checking rollout status..."
-          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-
-          for DEPLOY in patient-service appointment-service; do
-            echo "⏳ Waiting for $DEPLOY rollout..."
-            if ! kubectl rollout status deployment/$DEPLOY -n ${{ env.NAMESPACE }} --timeout=300s; then
-              echo "⚠️ Rollout for $DEPLOY did not complete in time. Collecting diagnostics..."
-              kubectl describe deployment/$DEPLOY -n ${{ env.NAMESPACE }} | tail -n 40
-              POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$DEPLOY -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-              if [ -n "$POD" ]; then
-                echo "📦 Logs for pod: $POD"
-                kubectl logs -n ${{ env.NAMESPACE }} $POD --tail=100 || true
-              fi
-            fi
-          done
-
-          echo "✅ Rollout check finished. Cluster state summary:"
-          kubectl get all -n ${{ env.NAMESPACE }}
-
-      # ✅ Post-Deployment Verification
       - name: Verify Deployment
         id: verify
         run: |
-          echo "=== 🕵️ Verifying Deployment ==="
-          kubectl get deployments -n ${{ env.NAMESPACE }}
-          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-          kubectl get svc -n ${{ env.NAMESPACE }}
-          kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found."
-
+          kubectl get all -n ${{ env.NAMESPACE }}
           LB=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' || echo "N/A")
           HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}' || echo "N/A")
-
-          echo "✅ LoadBalancer IP: ${LB}"
-          echo "✅ Ingress Host: ${HOST}"
           echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
 

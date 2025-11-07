@@ -1,7 +1,9 @@
 global:
   environment: dev
   namespace: healthcare-dev
-  imageRegistry: ""   # Will be set by pipeline → "myacr.azurecr.io/"
+  imageRegistry: "acrdev7459df5c.azurecr.io/"
+  useImagePullSecrets: false
+  acrSecretName: acr-secret
 
 patientService:
   name: patient-service
@@ -54,9 +56,3 @@ ingress:
     - path: /appointments
       service: appointment-service
       port: 80
-
-ingress-nginx:
-  enabled: true
-  controller:
-    service:
-      loadBalancerIP: null   # optional for static IP

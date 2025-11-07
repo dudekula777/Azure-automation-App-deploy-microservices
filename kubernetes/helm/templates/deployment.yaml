@@ -9,24 +9,29 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     app: {{ $svc.name }}
-
 spec:
   replicas: {{ $svc.replicaCount }}
   selector:
     matchLabels:
       app: {{ $svc.name }}
-
   template:
     metadata:
       labels:
         app: {{ $svc.name }}
-
     spec:
       containers:
         - name: {{ $svc.name }}
           image: {{ include "microservice.image" (dict "Values" $.Values "image" $svc.image) }}
+          imagePullPolicy: Always
           ports:
             - containerPort: {{ $svc.containerPort }}
           resources:
             {{- toYaml $svc.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: global-config
+      {{- if $.Values.global.useImagePullSecrets }}
+      imagePullSecrets:
+        - name: {{ $.Values.global.acrSecretName }}
+      {{- end }}
 {{- end }}

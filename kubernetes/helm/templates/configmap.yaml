@@ -5,3 +5,4 @@ metadata:
   namespace: {{ .Values.global.namespace }}
 data:
   ENVIRONMENT: "{{ .Values.global.environment }}"
+  IMAGE_REGISTRY: "{{ .Values.global.imageRegistry }}"
