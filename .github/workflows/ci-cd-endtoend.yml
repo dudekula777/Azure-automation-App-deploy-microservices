@@ -55,7 +55,6 @@ jobs:
           echo "acr-name=$(terraform output -raw acr_name)" >> $GITHUB_OUTPUT
           echo "acr-login-server=$(terraform output -raw acr_login_server)" >> $GITHUB_OUTPUT
 
-
   # ============================================================
   # 2️⃣ Docker Build and Push
   # ============================================================
@@ -66,6 +65,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      
       - name: Login to Azure CLI
         run: |
           az login --service-principal \
@@ -74,24 +74,41 @@ jobs:
             --tenant ${{ secrets.ARM_TENANT_ID }}
           az account set --subscription ${{ secrets.ARM_SUBSCRIPTION_ID }}
 
-      - name: Login to ACR
-        run: az acr login --name ${{ needs.terraform-infrastructure.outputs.acr-name }}
+      - name: Get ACR Credentials and Login
+        run: |
+          ACR_NAME="${{ needs.terraform-infrastructure.outputs.acr-name }}"
+          RESOURCE_GROUP="${{ needs.terraform-infrastructure.outputs.aks-resource-group }}"
+          
+          # Enable admin account for ACR
+          az acr update -n $ACR_NAME --resource-group $RESOURCE_GROUP --admin-enabled true
+          
+          # Get credentials and login to Docker
+          ACR_USERNAME=$(az acr credential show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "username" -o tsv)
+          ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --resource-group $RESOURCE_GROUP --query "passwords[0].value" -o tsv)
+          
+          echo "$ACR_PASSWORD" | docker login ${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
+            -u $ACR_USERNAME --password-stdin
 
       - name: Build & Push Patient Service
         run: |
+          echo "Building Patient Service..."
           cd apps/patient-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
 
       - name: Build & Push Appointment Service
         run: |
+          echo "Building Appointment Service..."
           cd apps/appointment-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
 
+      - name: Verify Images in ACR
+        run: |
+          az acr repository list --name ${{ needs.terraform-infrastructure.outputs.acr-name }} --output table
 
   # ============================================================
-  # 3️⃣ Deploy to AKS with Helm (Enhanced + ACR Access Fix)
+  # 3️⃣ Deploy to AKS with Helm (Fixed Image Paths + ACR Access)
   # ============================================================
   deploy-to-aks:
     name: 3 - Deploy to AKS
@@ -124,37 +141,53 @@ jobs:
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Ensure Namespace Exists and is Helm-managed
-      - name: Ensure Namespace Exists and Patch Ownership
+      # ✅ Clean up any stuck Helm operations and existing resources
+      - name: Clean Up Stuck Helm Operations
         run: |
-          kubectl get namespace ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create namespace ${{ env.NAMESPACE }}
-          kubectl label namespace ${{ env.NAMESPACE }} app.kubernetes.io/managed-by=Helm --overwrite || true
-          kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-name=healthcare-microservices --overwrite || true
-          kubectl annotate namespace ${{ env.NAMESPACE }} meta.helm.sh/release-namespace=${{ env.NAMESPACE }} --overwrite || true
+          echo "🧹 Cleaning up any stuck Helm operations..."
+          helm list -n ${{ env.NAMESPACE }} || true
+          helm rollback healthcare-microservices 0 -n ${{ env.NAMESPACE }} 2>/dev/null || true
+          helm uninstall healthcare-microservices -n ${{ env.NAMESPACE }} 2>/dev/null || true
+          
+          # Clean up any existing namespace
+          if kubectl get namespace ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "Deleting existing namespace..."
+            kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s || true
+            sleep 10
+          fi
 
-      # ✅ Validate and Fix AKS ↔️ ACR Access
-      - name: Validate AKS ↔️ ACR access
+      # ✅ Ensure AKS has ACR access
+      - name: Validate and Fix AKS ↔️ ACR Access
         run: |
-          echo "🔍 Checking if AKS has pull access to ACR..."
+          echo "🔍 Ensuring AKS has pull access to ACR..."
           ACR_NAME=${{ needs.terraform-infrastructure.outputs.acr-name }}
           AKS_RG=${{ needs.terraform-infrastructure.outputs.aks-resource-group }}
           AKS_NAME=${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}
 
+          # Get AKS cluster identity
           AKS_ID=$(az aks show -n $AKS_NAME -g $AKS_RG --query identityProfile.kubeletidentity.objectId -o tsv)
           ACR_ID=$(az acr show -n $ACR_NAME --query id -o tsv)
 
+          echo "AKS Identity: $AKS_ID"
+          echo "ACR Resource ID: $ACR_ID"
+
+          # Check and assign AcrPull role if needed
           if ! az role assignment list \
               --assignee "$AKS_ID" \
               --scope "$ACR_ID" \
               --query "[?roleDefinitionName=='AcrPull']" -o tsv | grep -q "AcrPull"; then
             echo "⚠️ AKS does not have AcrPull role — assigning now..."
             az role assignment create --assignee "$AKS_ID" --role AcrPull --scope "$ACR_ID"
+            echo "✅ AcrPull role assigned to AKS"
           else
             echo "✅ AKS already has AcrPull access."
           fi
 
-          echo "🔄 Restarting pods to ensure image re-pull..."
-          kubectl delete pods --all -n ${{ env.NAMESPACE }} || true
+      - name: Create Namespace
+        run: |
+          echo "📦 Creating namespace: ${{ env.NAMESPACE }}"
+          kubectl create namespace ${{ env.NAMESPACE }} || true
+          sleep 5
 
       - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
@@ -162,69 +195,82 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ Improved Helm Deploy + Debug
-      - name: Deploy Healthcare Microservices with Helm (Enhanced)
+      # ✅ Fixed Helm Deployment with correct image paths
+      - name: Deploy Healthcare Microservices
         run: |
-          echo "🚀 Deploying healthcare microservices..."
-          set +e
+          echo "🚀 Deploying healthcare microservices with Helm..."
+          
+          # Use full image repository paths including the registry
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
             --create-namespace=false \
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
-            --set global.imageRegistry="${{ needs.terraform-infrastructure.outputs.acr-login-server }}" \
-            --set patientService.image.repository="patient-service" \
-            --set appointmentService.image.repository="appointment-service" \
+            --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
+            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
+            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
+            --set patientService.image.tag=latest \
+            --set appointmentService.image.tag=latest \
+            --atomic \
             --wait --timeout 900s
-          status=$?
-          if [ $status -ne 0 ]; then
-            echo "⚠️ Helm deployment timed out. Retrying in 60s..."
-            sleep 60
-            helm upgrade --install healthcare-microservices \
-              ./kubernetes/helm \
-              --namespace ${{ env.NAMESPACE }} \
-              --reuse-values \
-              --wait --timeout 900s
-          fi
-          set -e
+          
+          echo "✅ Helm deployment completed successfully"
 
-          echo "✅ Helm release applied. Checking rollout status..."
-          echo "=== Checking pod states before rollout checks ==="
-          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-
+      # ✅ Wait for pods with better diagnostics
+      - name: Wait for Pods to be Ready
+        run: |
+          echo "⏳ Waiting for pods to be ready..."
+          
           for DEPLOY in patient-service appointment-service; do
-            echo "⏳ Waiting for $DEPLOY rollout..."
-            if ! kubectl rollout status deployment/$DEPLOY -n ${{ env.NAMESPACE }} --timeout=300s; then
-              echo "⚠️ Rollout for $DEPLOY did not complete in time. Collecting diagnostics..."
-              kubectl describe deployment/$DEPLOY -n ${{ env.NAMESPACE }} | tail -n 40
-              POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$DEPLOY -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-              if [ -n "$POD" ]; then
-                echo "📦 Logs for pod: $POD"
-                kubectl logs -n ${{ env.NAMESPACE }} $POD --tail=100 || true
-              fi
-            fi
+            echo "Checking $DEPLOY deployment..."
+            kubectl rollout status deployment/$DEPLOY -n ${{ env.NAMESPACE }} --timeout=300s || {
+              echo "❌ Rollout failed for $DEPLOY. Collecting diagnostics..."
+              
+              # Get deployment details
+              kubectl describe deployment/$DEPLOY -n ${{ env.NAMESPACE }}
+              
+              # Get pod details and logs
+              PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$DEPLOY -o jsonpath='{.items[*].metadata.name}')
+              for POD in $PODS; do
+                echo "--- Pod: $POD ---"
+                kubectl describe pod/$POD -n ${{ env.NAMESPACE }}
+                echo "--- Logs: $POD ---"
+                kubectl logs $POD -n ${{ env.NAMESPACE }} --tail=50 || true
+              done
+            }
           done
-
-          echo "✅ Rollout check finished. Cluster state summary:"
-          kubectl get all -n ${{ env.NAMESPACE }}
+          
+          echo "✅ All pods are ready or diagnostics collected"
 
       # ✅ Post-Deployment Verification
       - name: Verify Deployment
         id: verify
         run: |
-          echo "=== 🕵️ Verifying Deployment ==="
+          echo "=== 🕵️ Final Deployment Verification ==="
+          echo "📊 Deployments:"
           kubectl get deployments -n ${{ env.NAMESPACE }}
+          
+          echo "🐳 Pods:"
           kubectl get pods -n ${{ env.NAMESPACE }} -o wide
+          
+          echo "🔗 Services:"
           kubectl get svc -n ${{ env.NAMESPACE }}
+          
+          echo "🌐 Ingress:"
           kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found."
 
-          LB=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' || echo "N/A")
-          HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}' || echo "N/A")
+          # Get LoadBalancer IP safely
+          LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "N/A")
+          if [ "$LB_IP" = "N/A" ]; then
+            LB_IP=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Not Available")
+          fi
+          
+          HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "Not Configured")
 
-          echo "✅ LoadBalancer IP: ${LB}"
+          echo "✅ LoadBalancer IP: ${LB_IP}"
           echo "✅ Ingress Host: ${HOST}"
-          echo "LOADBALANCER_IP=${LB}" >> $GITHUB_OUTPUT
+          echo "LOADBALANCER_IP=${LB_IP}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
 
   # ============================================================
