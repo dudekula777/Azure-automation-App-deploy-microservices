@@ -91,14 +91,14 @@ jobs:
 
       - name: Build & Push Patient Service
         run: |
-          echo "Building Patient Service..."
+          echo "🐳 Building Patient Service..."
           cd apps/patient-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service:latest
 
       - name: Build & Push Appointment Service
         run: |
-          echo "Building Appointment Service..."
+          echo "🐳 Building Appointment Service..."
           cd apps/appointment-service
           docker build -t ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest .
           docker push ${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service:latest
@@ -138,60 +138,34 @@ jobs:
           AKS_NAME="${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}"
           AKS_RG="${{ needs.terraform-infrastructure.outputs.aks-resource-group }}"
           
-          echo "AKS Cluster: $AKS_NAME"
-          echo "Resource Group: $AKS_RG"
-          
-          # Get cluster credentials
           az aks get-credentials \
             --resource-group $AKS_RG \
             --name $AKS_NAME \
             --overwrite-existing
           
-          # Verify connectivity
           kubectl cluster-info
           kubectl get nodes
 
       - uses: azure/setup-helm@v3
 
-      # ✅ Clean up any existing resources
+      # ✅ Clean up old resources
       - name: Clean Up Existing Resources
         run: |
           echo "🧹 Cleaning up existing resources..."
-          
-          # Uninstall existing Helm release if any
           helm uninstall healthcare-microservices -n ${{ env.NAMESPACE }} 2>/dev/null || echo "No existing release to uninstall"
-          
-          # Delete namespace if it exists (clean slate)
-          kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s 2>/dev/null || echo "Namespace does not exist or already deleted"
-          
+          kubectl delete namespace ${{ env.NAMESPACE }} --wait=true --timeout=300s 2>/dev/null || echo "Namespace not found"
           sleep 10
 
       # ✅ Ensure AKS has ACR access
       - name: Validate AKS ACR Access
         run: |
-          echo "🔍 Ensuring AKS has pull access to ACR..."
+          echo "🔍 Ensuring AKS has ACR pull access..."
           ACR_NAME=${{ needs.terraform-infrastructure.outputs.acr-name }}
           AKS_RG=${{ needs.terraform-infrastructure.outputs.aks-resource-group }}
           AKS_NAME=${{ needs.terraform-infrastructure.outputs.aks-cluster-name }}
 
-          # Get AKS cluster identity
-          AKS_ID=$(az aks show -n $AKS_NAME -g $AKS_RG --query identityProfile.kubeletidentity.objectId -o tsv)
-          ACR_ID=$(az acr show -n $ACR_NAME --query id -o tsv)
-
-          echo "AKS Identity: $AKS_ID"
-          echo "ACR Resource ID: $ACR_ID"
-
-          # Check and assign AcrPull role if needed
-          if ! az role assignment list \
-              --assignee "$AKS_ID" \
-              --scope "$ACR_ID" \
-              --query "[?roleDefinitionName=='AcrPull']" -o tsv | grep -q "AcrPull"; then
-            echo "⚠️ AKS does not have AcrPull role — assigning now..."
-            az role assignment create --assignee "$AKS_ID" --role AcrPull --scope "$ACR_ID"
-            echo "✅ AcrPull role assigned to AKS"
-          else
-            echo "✅ AKS already has AcrPull access."
-          fi
+          az aks update -n $AKS_NAME -g $AKS_RG --attach-acr $ACR_NAME
+          echo "✅ Confirmed: AKS can pull images from ACR"
 
       - name: Helm Dependencies
         run: helm dependency build ./kubernetes/helm
@@ -199,11 +173,11 @@ jobs:
       - name: Helm Lint
         run: helm lint ./kubernetes/helm
 
-      # ✅ Deploy with Helm
+      # ✅ Deploy Healthcare Microservices (fixed)
       - name: Deploy Healthcare Microservices
         run: |
           echo "🚀 Deploying healthcare microservices with Helm..."
-          
+
           helm upgrade --install healthcare-microservices \
             ./kubernetes/helm \
             --namespace ${{ env.NAMESPACE }} \
@@ -211,54 +185,39 @@ jobs:
             --set global.namespace=${{ env.NAMESPACE }} \
             --set global.environment=${{ env.ENVIRONMENT }} \
             --set global.imageRegistry=${{ needs.terraform-infrastructure.outputs.acr-login-server }} \
-            --set patientService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/patient-service \
-            --set appointmentService.image.repository=${{ needs.terraform-infrastructure.outputs.acr-login-server }}/appointment-service \
+            --set patientService.image.repository=patient-service \
+            --set appointmentService.image.repository=appointment-service \
             --set patientService.image.tag=latest \
             --set appointmentService.image.tag=latest \
             --atomic \
             --wait --timeout 600s
-          
+
           echo "✅ Helm deployment completed successfully"
 
-      # ✅ Wait for pods
+      # ✅ Wait for Pods
       - name: Wait for Pods to be Ready
         run: |
           echo "⏳ Waiting for pods to be ready..."
-          
           for DEPLOY in patient-service appointment-service; do
-            echo "Waiting for $DEPLOY deployment..."
             kubectl rollout status deployment/$DEPLOY -n ${{ env.NAMESPACE }} --timeout=300s
           done
-          
           echo "✅ All pods are ready"
 
-      # ✅ Post-Deployment Verification
+      # ✅ Post-deployment verification
       - name: Verify Deployment
         id: verify
         run: |
-          echo "=== 🕵️ Final Deployment Verification ==="
-          echo "📊 Deployments:"
+          echo "=== 🕵️ Deployment Verification ==="
           kubectl get deployments -n ${{ env.NAMESPACE }}
-          
-          echo "🐳 Pods:"
           kubectl get pods -n ${{ env.NAMESPACE }} -o wide
-          
-          echo "🔗 Services:"
           kubectl get svc -n ${{ env.NAMESPACE }}
-          
-          echo "🌐 Ingress:"
-          kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found."
+          kubectl get ingress -n ${{ env.NAMESPACE }} || echo "No ingress found"
 
-          # Get LoadBalancer IP safely
           LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "N/A")
-          if [ "$LB_IP" = "N/A" ]; then
-            LB_IP=$(kubectl get svc -n ingress-nginx -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "Not Available")
-          fi
-          
           HOST=$(kubectl get ingress -n ${{ env.NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "Not Configured")
 
-          echo "✅ LoadBalancer IP: ${LB_IP}"
-          echo "✅ Ingress Host: ${HOST}"
+          echo "✅ LoadBalancer IP: $LB_IP"
+          echo "✅ Ingress Host: $HOST"
           echo "LOADBALANCER_IP=${LB_IP}" >> $GITHUB_OUTPUT
           echo "INGRESS_HOST=${HOST}" >> $GITHUB_OUTPUT
 
